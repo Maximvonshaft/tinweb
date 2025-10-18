@@ -1,0 +1,742 @@
+openapi: 3.0.3
+info:
+  title: Federated Drive API
+  version: "1.0"
+  description: |
+    Federated personal cloud drive – Contract-First API (v1).
+    前端先行、契约优先的联邦网盘接口规范（v1）。
+
+    - Protocol 协议: HTTP/1.1 + JSON
+    - Auth 鉴权: Bearer Token（不使用跨站 Cookie；适配纯 HTTP）
+    - Pagination 分页: Cursor（请求携带 `cursor,page_size`；返回 `next_cursor`）
+    - Envelope 统一响应包: `{ code, message, data }`（成功 `code=0`）
+    - Range: 下载/预览必须支持 Range；上传为分片+断点续传
+servers:
+  - url: http://api.example.com
+    description: Plain HTTP (no TLS). 纯 HTTP（无证书）
+tags:
+  - name: files
+    description: Files & folders 文件与目录
+  - name: upload
+    description: Resumable uploads 分片/断点续传
+  - name: shares
+    description: Share links 外链分享
+  - name: transfer
+    description: Cross-disk copy/move 跨盘复制/移动
+  - name: tasks
+    description: Background tasks 任务进度
+  - name: health
+    description: Health & index 健康与索引
+
+paths:
+  /api/files:
+    get:
+      tags: [files]
+      summary: List files/folders 列表
+      description: |
+        Cursor-based listing with optional search by name/mime.
+        基于游标的列表，可选按名称/类型搜索。
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/parent_id'
+        - $ref: '#/components/parameters/disk'
+        - $ref: '#/components/parameters/q'
+        - $ref: '#/components/parameters/cursor'
+        - $ref: '#/components/parameters/page_size'
+        - in: query
+          name: deleted
+          schema: { type: boolean }
+          description: Return soft-deleted items (recycle bin). 返回软删除（回收站）项
+      responses:
+        "200":
+          description: OK
+          headers:
+            X-API-Version:
+              schema: { type: string }
+              description: API version header 版本
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EnvelopeFileList'
+              examples:
+                ok:
+                  value:
+                    code: 0
+                    message: OK
+                    data:
+                      items:
+                        - { id: 1, is_dir: true, name: "Docs", size: 0, disk: "local", path: "u/1/docs", updated_at: "2025-10-18T10:20:30Z", parent_id: null }
+                        - { id: 2, is_dir: false, name: "photo.jpg", ext: "jpg", mime: "image/jpeg", size: 204800, disk: "gdrive", path: "photos/2025/photo.jpg", hash: "abc...", updated_at: "2025-10-18T10:22:30Z", parent_id: 1 }
+                      next_cursor: null
+
+  /api/folders:
+    post:
+      tags: [files]
+      summary: Create folder 新建目录
+      security: [ { bearerAuth: [] } ]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              required: [name, disk]
+              properties:
+                name: { type: string, description: Folder name 目录名 }
+                parent_id: { type: integer, nullable: true }
+                disk: { type: string, description: Target disk 目标盘, example: local }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/EnvelopeFileItem' }
+
+  /api/files/{id}:
+    patch:
+      tags: [files]
+      summary: Rename / update 重命名/更新元信息
+      security: [ { bearerAuth: [] } ]
+      parameters:
+        - $ref: '#/components/parameters/id'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              properties:
+                name: { type: string }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/EnvelopeFileItem' }
+        "409":
+          description: Conflict 冲突（命名）
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/EnvelopeError' }
+              example: { code: 40901, message: "Name conflict", data: null }
+    delete:
+      tags: [files]
+      summary: Soft delete 软删除
+      security: [ { bearerAuth: [] } ]
+      parameters:
+        - $ref: '#/components/parameters/id'
+        - in: query
+          name: force
+          schema: { type: boolean }
+          description: Permanently delete 彻底删除
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/EnvelopeDeleted' }
+
+  /api/files/restore/{id}:
+    post:
+      tags: [files]
+      summary: Restore from recycle 还原
+      security: [ { bearerAuth: [] } ]
+      parameters:
+        - $ref: '#/components/parameters/id'
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/EnvelopeFileItem' }
+
+  /api/files/move:
+    post:
+      tags: [files]
+      summary: Move (possibly cross-disk) 移动（可跨盘）
+      security: [ { bearerAuth: [] } ]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              required: [id]
+              properties:
+                id: { type: integer }
+                target_parent_id: { type: integer, nullable: true }
+                target_disk: { type: string, nullable: true }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/EnvelopeFileNode'
+                  - $ref: '#/components/schemas/EnvelopeTaskId'
+
+  /api/files/copy:
+    post:
+      tags: [files]
+      summary: Copy (possibly cross-disk) 复制（可跨盘）
+      security: [ { bearerAuth: [] } ]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              required: [id, target_disk]
+              properties:
+                id: { type: integer }
+                target_parent_id: { type: integer, nullable: true }
+                target_disk: { type: string }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EnvelopeTaskId'
+
+  /api/files/{id}/download:
+    get:
+      tags: [files]
+      summary: Download 下载（支持 Range）
+      security: [ { bearerAuth: [] } ]
+      parameters:
+        - $ref: '#/components/parameters/id'
+      responses:
+        "200":
+          description: JSON with signed URL 返回 JSON（签名直链）
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/EnvelopeDownload' }
+        "302":
+          description: Redirect to short-lived URL 302 重定向到短时直链
+
+  /api/files/{id}/preview:
+    get:
+      tags: [files]
+      summary: Preview metadata 预览信息
+      security: [ { bearerAuth: [] } ]
+      parameters:
+        - $ref: '#/components/parameters/id'
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/EnvelopePreview' }
+
+  /api/upload/init:
+    post:
+      tags: [upload]
+      summary: Init upload 初始化上传
+      security: [ { bearerAuth: [] } ]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              required: [disk, filename, size]
+              properties:
+                parent_id: { type: integer, nullable: true }
+                disk: { type: string, example: local }
+                filename: { type: string }
+                size: { type: integer }
+                sha256: { type: string, description: Optional for instant upload 可选，支持秒传 }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/EnvelopeUploadDone'
+                  - $ref: '#/components/schemas/EnvelopeUploadInit'
+
+  /api/upload/chunk:
+    post:
+      tags: [upload]
+      summary: Upload chunk 传分片
+      security: [ { bearerAuth: [] } ]
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              required: [upload_id, part_no, total_parts, chunk]
+              properties:
+                upload_id: { type: string }
+                part_no: { type: integer, minimum: 1 }
+                total_parts: { type: integer, minimum: 1 }
+                chunk:
+                  type: string
+                  format: binary
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/EnvelopeChunkAck' }
+        "409":
+          description: Conflict 冲突（分片/续传）
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/EnvelopeError' }
+              examples:
+                resume_conflict:
+                  value: { code: 40904, message: "Resume state conflict", data: null }
+
+  /api/upload/complete:
+    post:
+      tags: [upload]
+      summary: Complete merge 合并完成
+      security: [ { bearerAuth: [] } ]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              required: [upload_id]
+              properties:
+                upload_id: { type: string }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/EnvelopeUploadComplete' }
+        "409":
+          description: Merge checksum failed 合并校验失败
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/EnvelopeError' }
+              example: { code: 40903, message: "Checksum mismatch", data: null }
+
+  /api/upload/abort:
+    post:
+      tags: [upload]
+      summary: Abort upload 终止上传
+      security: [ { bearerAuth: [] } ]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              required: [upload_id]
+              properties:
+                upload_id: { type: string }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/EnvelopeAborted' }
+
+  /api/shares:
+    post:
+      tags: [shares]
+      summary: Create share link 创建外链
+      security: [ { bearerAuth: [] } ]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              required: [file_id]
+              properties:
+                file_id: { type: integer }
+                expires_at: { type: string, format: date-time, nullable: true }
+                password: { type: string, nullable: true }
+                allow_download: { type: boolean, default: true }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/EnvelopeShareCreated' }
+
+  /s/{token}:
+    get:
+      tags: [shares]
+      summary: Share detail 外链详情
+      parameters:
+        - $ref: '#/components/parameters/token'
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/EnvelopeShareDetail' }
+        "404":
+          description: Not found/expired 不存在或过期
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/EnvelopeError' }
+              example: { code: 40401, message: "Share expired", data: null }
+
+  /s/{token}/unlock:
+    post:
+      tags: [shares]
+      summary: Unlock share with password 外链口令解锁
+      parameters:
+        - $ref: '#/components/parameters/token'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              required: [password]
+              properties:
+                password: { type: string }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/EnvelopeShareUnlocked' }
+
+  /s/{token}/download:
+    get:
+      tags: [shares]
+      summary: Share download 外链下载（支持 Range/限速）
+      parameters:
+        - $ref: '#/components/parameters/token'
+      responses:
+        "200":
+          description: JSON with signed URL or stream JSON（签名直链）或流
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/EnvelopeDownload' }
+        "429":
+          description: Rate limited 触发限流
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/EnvelopeError' }
+              example: { code: 42901, message: "Rate limited", data: { retry_after: 10 } }
+
+  /api/transfer/copy:
+    post:
+      tags: [transfer]
+      summary: Start cross-disk copy 启动跨盘复制
+      security: [ { bearerAuth: [] } ]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              required: [id, target_disk]
+              properties:
+                id: { type: integer }
+                target_parent_id: { type: integer, nullable: true }
+                target_disk: { type: string }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/EnvelopeTaskId' }
+        "503":
+          description: rclone failed rclone 失败
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/EnvelopeError' }
+              example: { code: 50301, message: "rclone failed", data: null }
+
+  /api/tasks/{task_id}:
+    get:
+      tags: [tasks]
+      summary: Query task 任务查询
+      security: [ { bearerAuth: [] } ]
+      parameters:
+        - in: path
+          name: task_id
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/EnvelopeTaskStatus' }
+
+  /api/health:
+    get:
+      tags: [health]
+      summary: Health status 健康状态
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/EnvelopeHealth' }
+
+  /api/indexer/run:
+    post:
+      tags: [health]
+      summary: Trigger indexer 触发索引（管理员）
+      security: [ { bearerAuth: [] } ]
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              properties:
+                disk: { type: string, nullable: true }
+                path: { type: string, nullable: true }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/EnvelopeIndexer' }
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: |
+        Bearer token in Authorization header.
+        鉴权使用 Authorization 头携带 Bearer Token。
+
+  parameters:
+    id:
+      in: path
+      name: id
+      required: true
+      schema: { type: integer }
+      description: File/folder id 文件或目录ID
+    token:
+      in: path
+      name: token
+      required: true
+      schema: { type: string }
+      description: Share token 外链短码
+    parent_id:
+      in: query
+      name: parent_id
+      schema: { type: integer, nullable: true }
+      description: Parent folder id 父目录ID
+    disk:
+      in: query
+      name: disk
+      schema: { type: string }
+      description: Disk name 磁盘名称（local/gdrive/ty189/s3/...）
+    q:
+      in: query
+      name: q
+      schema: { type: string }
+      description: Search by name or mime 按名称或类型搜索
+    cursor:
+      in: query
+      name: cursor
+      schema: { type: string, nullable: true }
+      description: Cursor for pagination 分页游标
+    page_size:
+      in: query
+      name: page_size
+      schema: { type: integer, default: 50, minimum: 1, maximum: 500 }
+      description: Page size 每页数量
+
+  schemas:
+    Envelope:
+      type: object
+      properties:
+        code: { type: integer }
+        message: { type: string }
+        data: {}
+    EnvelopeError:
+      allOf:
+        - $ref: '#/components/schemas/Envelope'
+      example:
+        code: 40001
+        message: Bad Request
+        data: null
+
+    FileItem:
+      type: object
+      required: [id, is_dir, name, size, disk, path, updated_at]
+      properties:
+        id: { type: integer }
+        is_dir: { type: boolean }
+        name: { type: string }
+        ext: { type: string, nullable: true }
+        mime: { type: string, nullable: true }
+        size: { type: integer }
+        disk: { type: string }
+        path: { type: string }
+        hash: { type: string, nullable: true }
+        updated_at: { type: string, format: date-time }
+        parent_id: { type: integer, nullable: true }
+
+    ShareItem:
+      type: object
+      required: [id, file_id, token, allow_download, created_at]
+      properties:
+        id: { type: integer }
+        file_id: { type: integer }
+        token: { type: string }
+        password: { type: boolean, description: Whether password set 是否设置密码 }
+        expires_at: { type: string, format: date-time, nullable: true }
+        allow_download: { type: boolean }
+        created_at: { type: string, format: date-time }
+
+    TaskStatus:
+      type: object
+      required: [status, progress]
+      properties:
+        status:
+          type: string
+          enum: [queued, running, succeed, failed]
+        progress: { type: integer, minimum: 0, maximum: 100 }
+        speed_bps: { type: integer, nullable: true }
+        eta_seconds: { type: integer, nullable: true }
+        error: { type: string, nullable: true }
+
+    DiskHealth:
+      type: object
+      required: [name, status]
+      properties:
+        name: { type: string }
+        status: { type: string, enum: [ok, degraded, down] }
+        latency_ms: { type: integer, nullable: true }
+        note: { type: string, nullable: true }
+
+    QueueStats:
+      type: object
+      properties:
+        waiting: { type: integer }
+        running: { type: integer }
+        failed: { type: integer }
+
+    EnvelopeFileList:
+      allOf:
+        - $ref: '#/components/schemas/Envelope'
+      properties:
+        code: { type: integer }
+        message: { type: string }
+        data:
+          type: object
+          properties:
+            items:
+              type: array
+              items: { $ref: '#/components/schemas/FileItem' }
+            next_cursor:
+              type: string
+              nullable: true
+
+    EnvelopeFileItem:
+      allOf: [ { $ref: '#/components/schemas/Envelope' } ]
+      properties:
+        data: { $ref: '#/components/schemas/FileItem' }
+
+    EnvelopeFileNode:
+      allOf: [ { $ref: '#/components/schemas/Envelope' } ]
+      properties:
+        data:
+          type: object
+          properties:
+            node: { $ref: '#/components/schemas/FileItem' }
+
+    EnvelopeDeleted:
+      allOf: [ { $ref: '#/components/schemas/Envelope' } ]
+      example: { code: 0, message: OK, data: { deleted: true } }
+
+    EnvelopeDownload:
+      allOf: [ { $ref: '#/components/schemas/Envelope' } ]
+      properties:
+        data:
+          type: object
+          properties:
+            url: { type: string }
+            headers:
+              type: object
+              additionalProperties: { type: string }
+
+    EnvelopePreview:
+      allOf: [ { $ref: '#/components/schemas/Envelope' } ]
+      properties:
+        data:
+          type: object
+          properties:
+            url: { type: string, nullable: true }
+            inline: { type: boolean, default: true }
+            accepts_range: { type: boolean, default: true }
+            mime: { type: string }
+
+    EnvelopeUploadDone:
+      allOf: [ { $ref: '#/components/schemas/Envelope' } ]
+      example: { code: 0, message: OK, data: { done: true, file_id: 321 } }
+
+    EnvelopeUploadInit:
+      allOf: [ { $ref: '#/components/schemas/Envelope' } ]
+      properties:
+        data:
+          type: object
+          required: [done, upload_id, chunk_size, total_parts]
+          properties:
+            done: { type: boolean, example: false }
+            upload_id: { type: string }
+            chunk_size: { type: integer }
+            total_parts: { type: integer }
+
+    EnvelopeChunkAck:
+      allOf: [ { $ref: '#/components/schemas/Envelope' } ]
+      example: { code: 0, message: OK, data: { received: 1 } }
+
+    EnvelopeUploadComplete:
+      allOf: [ { $ref: '#/components/schemas/Envelope' } ]
+      example: { code: 0, message: OK, data: { file_id: 321, hash: "abc...", size: 5368709120 } }
+
+    EnvelopeAborted:
+      allOf: [ { $ref: '#/components/schemas/Envelope' } ]
+      example: { code: 0, message: OK, data: { aborted: true } }
+
+    EnvelopeShareCreated:
+      allOf: [ { $ref: '#/components/schemas/Envelope' } ]
+      example:
+        code: 0
+        message: OK
+        data:
+          token: "abcDEF12"
+          share_url: "http://front.example.com/share/abcDEF12"
+
+    EnvelopeShareDetail:
+      allOf: [ { $ref: '#/components/schemas/Envelope' } ]
+      properties:
+        data:
+          type: object
+          properties:
+            file: { $ref: '#/components/schemas/FileItem' }
+            requires_password: { type: boolean }
+            expires_at: { type: string, format: date-time, nullable: true }
+
+    EnvelopeShareUnlocked:
+      allOf: [ { $ref: '#/components/schemas/Envelope' } ]
+      example: { code: 0, message: OK, data: { unlocked: true, session_token: "xyz" } }
+
+    EnvelopeTaskId:
+      allOf: [ { $ref: '#/components/schemas/Envelope' } ]
+      example: { code: 0, message: OK, data: { task_id: "79d7d8c2-..." } }
+
+    EnvelopeTaskStatus:
+      allOf: [ { $ref: '#/components/schemas/Envelope' } ]
+      properties:
+        data: { $ref: '#/components/schemas/TaskStatus' }
+
+    EnvelopeHealth:
+      allOf: [ { $ref: '#/components/schemas/Envelope' } ]
+      properties:
+        data:
+          type: object
+          properties:
+            disks:
+              type: array
+              items: { $ref: '#/components/schemas/DiskHealth' }
+            queue: { $ref: '#/components/schemas/QueueStats' }
+
+    EnvelopeIndexer:
+      allOf: [ { $ref: '#/components/schemas/Envelope' } ]
+      example: { code: 0, message: OK, data: { started: true, job_id: "f1b2..." } }
