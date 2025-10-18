@@ -15,6 +15,8 @@ servers:
   - url: http://api.example.com
     description: Plain HTTP (no TLS). 纯 HTTP（无证书）
 tags:
+  - name: auth
+    description: Authentication & session handling 鉴权与会话
   - name: files
     description: Files & folders 文件与目录
   - name: upload
@@ -29,6 +31,34 @@ tags:
     description: Health & index 健康与索引
 
 paths:
+  /api/auth/login:
+    post:
+      tags: [auth]
+      summary: Login 获取访问令牌
+      description: |
+        Minimal username/password login returning access token. No refresh token in v1.
+        v1 最小鉴权，使用用户名/密码换取 access token，暂不提供 refresh token。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              required: [username, password]
+              properties:
+                username: { type: string, example: demo }
+                password: { type: string, format: password }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/EnvelopeAuthLogin' }
+        "401":
+          description: Invalid credentials 账号或密码错误
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/EnvelopeError' }
+
   /api/files:
     get:
       tags: [files]
@@ -148,6 +178,21 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/EnvelopeFileItem' }
+
+  /api/recycle/empty:
+    post:
+      tags: [files]
+      summary: Empty recycle bin 清空回收站
+      security: [ { bearerAuth: [] } ]
+      description: |
+        Permanently purge all soft-deleted items for current user.
+        清空当前用户的回收站（强制彻底删除所有软删除条目）。
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/EnvelopeRecycleEmpty' }
 
   /api/files/move:
     post:
@@ -379,6 +424,9 @@ paths:
     post:
       tags: [shares]
       summary: Unlock share with password 外链口令解锁
+      description: |
+        Returns a session token that front-end should persist in sessionStorage under `share:{token}`.
+        返回 session_token，前端需存入 sessionStorage（键名 `share:{token}`），用于后续下载请求。
       parameters:
         - $ref: '#/components/parameters/token'
       requestBody:
@@ -400,8 +448,16 @@ paths:
     get:
       tags: [shares]
       summary: Share download 外链下载（支持 Range/限速）
+      description: |
+        Requires `X-Share-Session` header when share is password-protected.
+        若外链设置了口令，需在请求头附带 `X-Share-Session`。
       parameters:
         - $ref: '#/components/parameters/token'
+        - in: header
+          name: X-Share-Session
+          schema: { type: string }
+          required: false
+          description: Session token obtained from unlock API. 通过解锁接口获得的 session_token。
       responses:
         "200":
           description: JSON with signed URL or stream JSON（签名直链）或流
@@ -448,6 +504,9 @@ paths:
       tags: [tasks]
       summary: Query task 任务查询
       security: [ { bearerAuth: [] } ]
+      description: |
+        Poll every 2s for `queued/running` status (back off to 5s/10s on 429/5xx). Max 8 concurrent polls on client.
+        前端需在任务排队/运行时以 2 秒间隔轮询，若收到 429/5xx 则退避至 5 秒、再至 10 秒，并行轮询不超过 8 条任务。
       parameters:
         - in: path
           name: task_id
@@ -476,6 +535,9 @@ paths:
       tags: [health]
       summary: Trigger indexer 触发索引（管理员）
       security: [ { bearerAuth: [] } ]
+      description: |
+        Restricted to admin role; front-end should hide this action for non-admin users.
+        仅管理员角色可调用，前端在非管理员登录时需隐藏该操作入口。
       requestBody:
         required: false
         content:
@@ -554,6 +616,30 @@ components:
         code: 40001
         message: Bad Request
         data: null
+
+    AuthUser:
+      type: object
+      properties:
+        id: { type: integer }
+        username: { type: string }
+        role:
+          type: string
+          nullable: true
+          description: User role, admin enables privileged actions. 用户角色；admin 可操作特权功能。
+
+    EnvelopeAuthLogin:
+      allOf: [ { $ref: '#/components/schemas/Envelope' } ]
+      properties:
+        data:
+          type: object
+          required: [access_token, expires_in]
+          properties:
+            access_token: { type: string, description: Bearer token for Authorization header 用于 Authorization 头的 Bearer Token }
+            expires_in: { type: integer, description: Token TTL in seconds 令牌有效期（秒） }
+            user:
+              allOf: [ { $ref: '#/components/schemas/AuthUser' } ]
+              nullable: true
+              description: Optional user profile info. 可选用户信息（含角色）。
 
     FileItem:
       type: object
@@ -643,6 +729,10 @@ components:
     EnvelopeDeleted:
       allOf: [ { $ref: '#/components/schemas/Envelope' } ]
       example: { code: 0, message: OK, data: { deleted: true } }
+
+    EnvelopeRecycleEmpty:
+      allOf: [ { $ref: '#/components/schemas/Envelope' } ]
+      example: { code: 0, message: OK, data: { cleared: true } }
 
     EnvelopeDownload:
       allOf: [ { $ref: '#/components/schemas/Envelope' } ]
