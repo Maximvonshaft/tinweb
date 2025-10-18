@@ -4,7 +4,7 @@ import type { TaskStatus } from '@/types/api';
 
 export function useTaskStatusQuery(taskId: string, enabled = true) {
   const client = useApiClient();
-  return useQuery({
+  return useQuery<TaskStatus, Error>({
     queryKey: ['task', taskId],
     enabled,
     queryFn: () => client<TaskStatus>(`tasks/${taskId}`),
