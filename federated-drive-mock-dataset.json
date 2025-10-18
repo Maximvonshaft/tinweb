@@ -1,0 +1,203 @@
+{
+  "__comment_bilingual": "Mock dataset for Federated Drive (ZH/EN notes embedded in keys where needed). 联邦网盘前端用假数据集。",
+  "config": {
+    "API_BASE_URL": "http://api.example.com",
+    "SHARE_BASE_URL": "http://front.example.com/share/"
+  },
+
+  "routes": [
+    {
+      "method": "GET",
+      "path": "/api/health",
+      "status": 200,
+      "response": {
+        "code": 0,
+        "message": "OK",
+        "data": {
+          "disks": [
+            { "name": "local", "status": "ok", "latency_ms": 8, "note": null },
+            { "name": "gdrive", "status": "ok", "latency_ms": 120, "note": null },
+            { "name": "ty189", "status": "degraded", "latency_ms": 420, "note": "read-only" }
+          ],
+          "queue": { "waiting": 0, "running": 1, "failed": 0 }
+        }
+      }
+    },
+
+    {
+      "method": "GET",
+      "path": "/api/files",
+      "query": { "parent_id": null, "disk": "local" },
+      "status": 200,
+      "response": {
+        "code": 0,
+        "message": "OK",
+        "data": {
+          "items": [
+            { "id": 1, "is_dir": true, "name": "Docs", "size": 0, "disk": "local", "path": "u/1/docs", "hash": null, "updated_at": "2025-10-18T10:20:30Z", "parent_id": null },
+            { "id": 2, "is_dir": false, "name": "photo.jpg", "ext": "jpg", "mime": "image/jpeg", "size": 204800, "disk": "local", "path": "u/1/photo.jpg", "hash": "sha256-111", "updated_at": "2025-10-18T10:21:30Z", "parent_id": null }
+          ],
+          "next_cursor": "c-001"
+        }
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/files",
+      "query": { "cursor": "c-001" },
+      "status": 200,
+      "response": {
+        "code": 0,
+        "message": "OK",
+        "data": {
+          "items": [
+            { "id": 3, "is_dir": true, "name": "Videos", "size": 0, "disk": "gdrive", "path": "Team/Videos", "hash": null, "updated_at": "2025-10-18T10:22:30Z", "parent_id": null }
+          ],
+          "next_cursor": null
+        }
+      }
+    },
+
+    {
+      "method": "POST",
+      "path": "/api/folders",
+      "status": 200,
+      "request_example": { "name": "New", "parent_id": 1, "disk": "local" },
+      "response": {
+        "code": 0,
+        "message": "OK",
+        "data": { "id": 10, "is_dir": true, "name": "New", "size": 0, "disk": "local", "path": "u/1/docs/New", "hash": null, "updated_at": "2025-10-18T11:00:00Z", "parent_id": 1 }
+      }
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/files/2",
+      "status": 409,
+      "response": { "code": 40901, "message": "Name conflict", "data": null }
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/files/2",
+      "status": 200,
+      "response": {
+        "code": 0,
+        "message": "OK",
+        "data": { "id": 2, "is_dir": false, "name": "photo-1.jpg", "ext": "jpg", "mime": "image/jpeg", "size": 204800, "disk": "local", "path": "u/1/photo-1.jpg", "hash": "sha256-111", "updated_at": "2025-10-18T11:05:00Z", "parent_id": null }
+      }
+    },
+
+    {
+      "method": "POST",
+      "path": "/api/files/copy",
+      "status": 200,
+      "request_example": { "id": 2, "target_parent_id": null, "target_disk": "gdrive" },
+      "response": { "code": 0, "message": "OK", "data": { "task_id": "task-copy-001" } }
+    },
+    {
+      "method": "GET",
+      "path": "/api/tasks/task-copy-001",
+      "status": 200,
+      "response": { "code": 0, "message": "OK", "data": { "status": "running", "progress": 42, "speed_bps": 10485760, "eta_seconds": 60, "error": null } }
+    },
+    {
+      "method": "GET",
+      "path": "/api/tasks/task-copy-001",
+      "variant": "done",
+      "status": 200,
+      "response": { "code": 0, "message": "OK", "data": { "status": "succeed", "progress": 100, "speed_bps": 7340032, "eta_seconds": 0, "error": null } }
+    },
+
+    {
+      "method": "GET",
+      "path": "/api/files/2/download",
+      "status": 200,
+      "response": { "code": 0, "message": "OK", "data": { "url": "http://cdn.example.com/dl/abcdef", "headers": { "X-Signed": "1" } } }
+    },
+    {
+      "method": "GET",
+      "path": "/api/files/3/preview",
+      "status": 200,
+      "response": { "code": 0, "message": "OK", "data": { "url": "http://cdn.example.com/stream/ghijk", "inline": true, "accepts_range": true, "mime": "video/mp4" } }
+    },
+
+    {
+      "method": "POST",
+      "path": "/api/upload/init",
+      "status": 200,
+      "request_example": { "parent_id": 1, "disk": "local", "filename": "big.iso", "size": 5368709120, "sha256": "sha256-abc" },
+      "response": { "code": 0, "message": "OK", "data": { "done": false, "upload_id": "up-001", "chunk_size": 8388608, "total_parts": 640 } }
+    },
+    {
+      "method": "POST",
+      "path": "/api/upload/chunk",
+      "status": 200,
+      "response": { "code": 0, "message": "OK", "data": { "received": 1 } }
+    },
+    {
+      "method": "POST",
+      "path": "/api/upload/complete",
+      "status": 409,
+      "response": { "code": 40903, "message": "Checksum mismatch", "data": null }
+    },
+    {
+      "method": "POST",
+      "path": "/api/upload/complete",
+      "variant": "retry-success",
+      "status": 200,
+      "response": { "code": 0, "message": "OK", "data": { "file_id": 321, "hash": "sha256-abc", "size": 5368709120 } }
+    },
+    {
+      "method": "POST",
+      "path": "/api/upload/abort",
+      "status": 200,
+      "response": { "code": 0, "message": "OK", "data": { "aborted": true } }
+    },
+
+    {
+      "method": "POST",
+      "path": "/api/shares",
+      "status": 200,
+      "request_example": { "file_id": 2, "expires_at": "2025-10-20T12:00:00Z", "password": "1234", "allow_download": true },
+      "response": { "code": 0, "message": "OK", "data": { "token": "abcDEF12", "share_url": "http://front.example.com/share/abcDEF12" } }
+    },
+    {
+      "method": "GET",
+      "path": "/s/abcDEF12",
+      "status": 200,
+      "response": {
+        "code": 0,
+        "message": "OK",
+        "data": {
+          "file": { "id": 2, "is_dir": false, "name": "photo-1.jpg", "ext": "jpg", "mime": "image/jpeg", "size": 204800, "disk": "local", "path": "u/1/photo-1.jpg", "hash": "sha256-111", "updated_at": "2025-10-18T11:05:00Z", "parent_id": null },
+          "requires_password": true,
+          "expires_at": "2025-10-20T12:00:00Z"
+        }
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/s/abcDEF12/unlock",
+      "status": 200,
+      "response": { "code": 0, "message": "OK", "data": { "unlocked": true, "session_token": "share-session-xyz" } }
+    },
+    {
+      "method": "GET",
+      "path": "/s/abcDEF12/download",
+      "headers_required": { "X-Share-Session": "share-session-xyz" },
+      "status": 200,
+      "response": { "code": 0, "message": "OK", "data": { "url": "http://cdn.example.com/dl/share/abcDEF12?sig=...", "headers": { "X-Signed": "1" } } }
+    },
+    {
+      "method": "GET",
+      "path": "/s/expiredToken/download",
+      "status": 404,
+      "response": { "code": 40401, "message": "Share expired", "data": null }
+    },
+    {
+      "method": "GET",
+      "path": "/s/limitToken/download",
+      "status": 429,
+      "response": { "code": 42901, "message": "Rate limited", "data": { "retry_after": 15 } }
+    }
+  ]
+}
