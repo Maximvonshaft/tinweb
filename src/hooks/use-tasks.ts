@@ -8,9 +8,10 @@ export function useTaskStatusQuery(taskId: string, enabled = true) {
     queryKey: ['task', taskId],
     enabled,
     queryFn: () => client<TaskStatus>(`tasks/${taskId}`),
-    refetchInterval: (data) => {
-      if (!data) return 2000;
-      if (data.status === 'succeed' || data.status === 'failed') return false;
+    refetchInterval: (query) => {
+      const currentStatus = query.state.data?.status;
+      if (!currentStatus) return 2000;
+      if (currentStatus === 'succeed' || currentStatus === 'failed') return false;
       return 2000;
     },
     retry: (failureCount, error) => {

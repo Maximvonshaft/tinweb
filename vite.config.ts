@@ -6,13 +6,13 @@ export default defineConfig(({ command }) => {
   const enableMock = process.env.ENABLE_MOCK === '1' || command === 'serve';
 
   return {
+    base: command === 'build' ? './' : '/',
     plugins: [
       react(),
       viteMockServe({
         mockPath: 'mocks',
-        localEnabled: enableMock,
-        prodEnabled: false,
-        watchFiles: ['federated-drive-mock-dataset.json'],
+        enable: enableMock,
+        watchFiles: true,
         logger: true,
       }),
     ],

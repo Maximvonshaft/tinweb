@@ -1,5 +1,6 @@
 import { useMutation } from '@tanstack/react-query';
-import { useApiClient, ApiError } from './use-api-client';
+import { useApiClient } from './use-api-client';
+import type { ApiError } from './use-api-client';
 import type { LoginResponse } from '@/types/api';
 
 export interface LoginPayload {
