@@ -1,0 +1,63 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --bg: #0b0d0e;
+  --bg-2: #111315;
+  --fg: #cfd3d6;
+  --fg-2: #8a9197;
+  --line: #1b1f22;
+  --accent: #2e6bf2;
+  --success: #00c387;
+  --warn: #ffb020;
+  --danger: #ff4d4f;
+  --hover: #1a2230;
+  --radius: 6px;
+  --radius-small: 2px;
+  --shadow-1: 0 4px 12px rgba(0, 0, 0, 0.24);
+}
+
+[data-theme='light'] {
+  --bg: #f4f5f6;
+  --bg-2: #ffffff;
+  --fg: #1a1d1f;
+  --fg-2: #4f565c;
+  --line: #d3d6d9;
+  --accent: #2e6bf2;
+  --success: #009f6f;
+  --warn: #ffb020;
+  --danger: #ff4d4f;
+  --hover: rgba(18, 26, 38, 0.08);
+}
+
+html,
+body {
+  min-height: 100%;
+  background-color: var(--bg);
+  color: var(--fg);
+  font-family: 'Inter', 'Noto Sans SC', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+}
+
+body {
+  margin: 0;
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+[data-density='compact'] .compact-row {
+  height: 36px;
+}
+
+[data-density='standard'] .compact-row {
+  height: 44px;
+}
