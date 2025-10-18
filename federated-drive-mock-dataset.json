@@ -4,25 +4,61 @@
     "API_BASE_URL": "http://api.example.com",
     "SHARE_BASE_URL": "http://front.example.com/share/"
   },
-{ "method":"POST", "path":"/api/auth/login", "status":200,
-  "response":{ "code":0, "message":"OK", "data":{ "access_token":"mock-token-123", "expires_in":3600 } }
-},
-{ "method":"POST", "path":"/api/auth/login", "variant":"bad",
-  "status":401, "response":{ "code":40101, "message":"Invalid credentials", "data":null }
-},
-{ "method":"POST", "path":"/api/recycle/empty", "status":200,
-  "response":{ "code":0, "message":"OK", "data":{ "cleared":true } }
-},
-{ "method":"GET", "path":"/api/files", "query":{ "deleted": true }, "status":200,
-  "response":{ "code":0, "message":"OK", "data":{ "items":[ /* 软删文件列表 */ ], "next_cursor": null } }
-},
-{ "method":"GET", "path":"/api/tasks/task-failed-001", "status":200,
-  "response":{ "code":0, "message":"OK", "data":{ "status":"failed","progress":37,"error":"Network error" } }
-},
-
-
-
   "routes": [
+    {
+      "method": "POST",
+      "path": "/api/auth/login",
+      "status": 200,
+      "response": {
+        "code": 0,
+        "message": "OK",
+        "data": { "access_token": "mock-token-123", "expires_in": 3600, "user": { "id": 1, "username": "demo", "role": "admin" } }
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/auth/login",
+      "variant": "bad",
+      "status": 401,
+      "response": { "code": 40101, "message": "Invalid credentials", "data": null }
+    },
+
+    {
+      "method": "POST",
+      "path": "/api/recycle/empty",
+      "status": 200,
+      "response": { "code": 0, "message": "OK", "data": { "cleared": true } }
+    },
+
+    {
+      "method": "GET",
+      "path": "/api/files",
+      "query": { "deleted": true },
+      "status": 200,
+      "response": {
+        "code": 0,
+        "message": "OK",
+        "data": {
+          "items": [
+            { "id": 21, "is_dir": false, "name": "old-report.pdf", "ext": "pdf", "mime": "application/pdf", "size": 102400, "disk": "local", "path": "u/1/archive/2023/old-report.pdf", "hash": "sha256-old", "updated_at": "2025-09-18T08:00:00Z", "parent_id": 1 },
+            { "id": 22, "is_dir": false, "name": "obsolete.sql", "ext": "sql", "mime": "application/sql", "size": 51200, "disk": "gdrive", "path": "Team/DB/obsolete.sql", "hash": null, "updated_at": "2025-09-15T16:20:00Z", "parent_id": 4 }
+          ],
+          "next_cursor": null
+        }
+      }
+    },
+
+    {
+      "method": "GET",
+      "path": "/api/tasks/task-failed-001",
+      "status": 200,
+      "response": {
+        "code": 0,
+        "message": "OK",
+        "data": { "status": "failed", "progress": 37, "speed_bps": null, "eta_seconds": null, "error": "Network error" }
+      }
+    },
+
     {
       "method": "GET",
       "path": "/api/health",
