@@ -26,6 +26,7 @@ export interface TaskStatus {
 }
 
 export interface HealthDisk {
+  code: string;
   name: string;
   status: 'ok' | 'degraded' | 'down';
   latency_ms: number;

@@ -280,7 +280,9 @@ export const createFilesRouter = (context: ApplicationContext) => {
       if (!metadata) {
         throw createNotFoundError('文件不存在');
       }
-      const preview = await buildFilePreview(metadata, `/api/files/${id}/raw`);
+      const basePath = `/api/files/${id}/raw`;
+      const downloadPath = req.accessToken ? `${basePath}?access_token=${encodeURIComponent(req.accessToken)}` : basePath;
+      const preview = await buildFilePreview(metadata, downloadPath);
       sendSuccess(res, preview);
     })
   );
