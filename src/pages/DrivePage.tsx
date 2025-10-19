@@ -11,6 +11,7 @@ import { FilePreviewDialog } from '@/components/FilePreviewDialog';
 import { useDriveFilePreview } from '@/hooks/use-preview';
 import { useShareCreate } from '@/hooks/use-share';
 import { useAppConfig } from '@/providers/config-provider';
+import { useHealthQuery } from '@/hooks/use-health';
 
 function formatSize(bytes: number): string {
   if (!bytes) return '—';
@@ -47,8 +48,19 @@ export function DrivePage() {
   const previewQuery = useDriveFilePreview(previewTarget ? previewTarget.id : null, previewOpen);
   const shareMutation = useShareCreate();
   const { SHARE_BASE_URL } = useAppConfig();
+  const { data: health } = useHealthQuery();
 
   const items = useMemo(() => filesQuery.data?.pages.flatMap((page) => page.items) ?? [], [filesQuery.data]);
+
+  const diskLabelMap = useMemo(() => {
+    const map = new Map<string, string>();
+    (health?.disks ?? []).forEach((item) => {
+      map.set(item.code, item.name);
+    });
+    return map;
+  }, [health]);
+
+  const activeDiskLabel = diskLabelMap.get(disk) ?? disk;
 
   const breadcrumbs = useMemo(() => {
     const crumbs: Array<{ label: string; target: string | null }> = [{ label: 'ROOT', target: null }];
@@ -65,7 +77,7 @@ export function DrivePage() {
     if (!name) return;
     try {
       await createFolder.mutateAsync({ name, disk, parent_id: parentId });
-      push({ tone: 'success', title: 'FOLDER CREATED', description: `已在 ${disk} 创建 ${name}` });
+      push({ tone: 'success', title: 'FOLDER CREATED', description: `已在 ${activeDiskLabel} 创建 ${name}` });
     } catch (error) {
       push({ tone: 'danger', title: 'FAILED', description: (error as Error).message });
     }
@@ -151,6 +163,7 @@ export function DrivePage() {
 
   const renderRow = (item: FileItem) => {
     const selected = selectedIds.has(String(item.id));
+    const diskLabel = diskLabelMap.get(item.disk) ?? item.disk;
     return (
       <div
         key={item.id}
@@ -175,7 +188,7 @@ export function DrivePage() {
         </div>
         <span className="font-mono text-xs text-[var(--fg-2)]">{formatSize(item.size)}</span>
         <span className="font-mono text-xs text-[var(--fg-2)]">{new Date(item.updated_at).toLocaleString()}</span>
-        <span className="font-mono text-xs text-[var(--fg-2)]">{item.disk}</span>
+        <span className="font-mono text-xs text-[var(--fg-2)]">{diskLabel}</span>
         <span className="font-mono text-xs text-[var(--fg-2)]">{hashPreview(item.hash)}</span>
         <div className="flex items-center justify-end gap-2 text-[var(--fg-2)]">
           <Share2
@@ -251,6 +264,7 @@ export function DrivePage() {
               />
             </div>
             <p className="mt-3 font-mono text-[10px] text-[var(--fg-2)]">{formatSize(item.size)}</p>
+            <p className="font-mono text-[10px] text-[var(--fg-2)]">{diskLabelMap.get(item.disk) ?? item.disk}</p>
             <p className="font-mono text-[10px] text-[var(--fg-2)]">{hashPreview(item.hash)}</p>
             </div>
           );
