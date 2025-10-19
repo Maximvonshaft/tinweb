@@ -4,7 +4,7 @@ import multer from 'multer';
 import { z } from 'zod';
 import { asyncHandler } from '../../core/middleware/async-handler.js';
 import { sendSuccess } from '../../core/envelope.js';
-import { requireAuth } from '../../core/middleware/auth.js';
+import { extractAccessToken, requireAuth } from '../../core/middleware/auth.js';
 import type { ApplicationContext } from '../../app/context.js';
 import {
   createFolder,
@@ -280,7 +280,11 @@ export const createFilesRouter = (context: ApplicationContext) => {
       if (!metadata) {
         throw createNotFoundError('文件不存在');
       }
-      const preview = await buildFilePreview(metadata, `/api/files/${id}/raw`);
+      const token = extractAccessToken(req);
+      const preview = await buildFilePreview(
+        metadata,
+        `/api/files/${id}/raw?access_token=${encodeURIComponent(token)}`
+      );
       sendSuccess(res, preview);
     })
   );

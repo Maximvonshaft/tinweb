@@ -48,7 +48,13 @@ export function AppShell({ children }: AppShellProps) {
   const user = useAuthStore((state) => state.user);
   const clearAuth = useAuthStore((state) => state.clear);
 
-  const disks = useMemo(() => health?.disks ?? [{ name: 'local', status: 'ok', latency_ms: 0, note: null }], [health]);
+  const disks = useMemo(
+    () =>
+      health?.disks ?? [
+        { code: 'local', name: 'local', status: 'ok' as const, latency_ms: 0, note: null }
+      ],
+    [health]
+  );
   const uploadInputRef = useRef<HTMLInputElement | null>(null);
   const searchInputRef = useRef<HTMLInputElement | null>(null);
   const uploadFiles = useFileUpload();
@@ -112,11 +118,14 @@ export function AppShell({ children }: AppShellProps) {
                 const disabled = item.note === 'read-only';
                 return (
                   <button
-                    key={item.name}
-                    onClick={() => setDisk(item.name)}
+                    key={item.code}
+                    onClick={() => setDisk(item.code)}
                     className={`flex w-full items-center justify-between rounded-[var(--radius)] border border-transparent px-3 py-2 text-left text-sm transition ${
-                      disk === item.name ? 'border-[var(--accent)] bg-[rgba(46,107,242,0.12)] text-[var(--accent)]' : 'hover:bg-[var(--hover)]'
+                      disk === item.code
+                        ? 'border-[var(--accent)] bg-[rgba(46,107,242,0.12)] text-[var(--accent)]'
+                        : 'hover:bg-[var(--hover)]'
                     }`}
+                    disabled={disabled}
                   >
                     <span className="font-mono text-xs uppercase">{item.name}</span>
                     <span className="text-[10px] text-[var(--fg-2)]">
