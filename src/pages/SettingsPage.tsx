@@ -7,7 +7,7 @@ import { useAuthStore } from '@/stores/auth';
 import { useApiClient } from '@/hooks/use-api-client';
 
 export function SettingsPage() {
-  const { API_BASE_URL, SHARE_BASE_URL } = useAppConfig();
+  const { API_BASE_URL, SHARE_BASE_URL, SHARE_API_BASE_URL } = useAppConfig();
   const theme = useSettingsStore((state) => state.theme);
   const setTheme = useSettingsStore((state) => state.setTheme);
   const density = useSettingsStore((state) => state.density);
@@ -66,6 +66,10 @@ export function SettingsPage() {
           <div>
             <p className="font-mono text-xs text-[var(--fg-2)]">SHARE BASE</p>
             <p className="mt-1 rounded-[var(--radius-small)] bg-[var(--bg)] px-3 py-2 font-mono text-xs">{SHARE_BASE_URL}</p>
+          </div>
+          <div>
+            <p className="font-mono text-xs text-[var(--fg-2)]">SHARE API</p>
+            <p className="mt-1 rounded-[var(--radius-small)] bg-[var(--bg)] px-3 py-2 font-mono text-xs">{SHARE_API_BASE_URL}</p>
           </div>
         </div>
       </section>

@@ -2,13 +2,14 @@ import { useMemo, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { useShareDetail, useShareUnlock, fetchShareDownload } from '@/hooks/use-share';
+import { useShareDetail, useShareUnlock, useShareDownload } from '@/hooks/use-share';
 import { useToast } from '@/stores/toast';
 
 export function SharePage() {
   const { token } = useParams();
   const { data, isLoading, isError, error, refetch } = useShareDetail(token);
   const unlockMutation = useShareUnlock(token);
+  const downloadShare = useShareDownload();
   const { push } = useToast();
   const [password, setPassword] = useState('');
   const sessionKey = useMemo(() => (token ? `share:${token}` : 'share'), [token]);
@@ -35,7 +36,7 @@ export function SharePage() {
 
   const handleDownload = async () => {
     try {
-      const info = await fetchShareDownload(token, sessionToken);
+      const info = await downloadShare(token, sessionToken);
       push({ tone: 'success', title: 'DOWNLOAD', description: '已获取下载链接。' });
       window.open(info.url, '_blank');
     } catch (err) {

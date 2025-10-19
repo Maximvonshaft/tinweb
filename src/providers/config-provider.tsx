@@ -3,11 +3,13 @@ import { createContext, useContext, useEffect, useState, type ReactNode } from '
 type AppConfig = {
   API_BASE_URL: string;
   SHARE_BASE_URL: string;
+  SHARE_API_BASE_URL: string;
 };
 
 const defaultConfig: AppConfig = {
   API_BASE_URL: '/api',
   SHARE_BASE_URL: '/share/',
+  SHARE_API_BASE_URL: '/',
 };
 
 interface ConfigContextValue {

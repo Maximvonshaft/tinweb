@@ -3,7 +3,8 @@ import react from '@vitejs/plugin-react';
 import { viteMockServe } from 'vite-plugin-mock';
 
 export default defineConfig(({ command }) => {
-  const enableMock = process.env.ENABLE_MOCK === '1' || command === 'serve';
+  const enableMock = process.env.ENABLE_MOCK === '1';
+  const backendTarget = process.env.BACKEND_URL ?? 'http://localhost:8787';
 
   return {
     base: command === 'build' ? './' : '/',
@@ -18,6 +19,18 @@ export default defineConfig(({ command }) => {
     ],
     server: {
       port: 5173,
+      proxy: enableMock
+        ? undefined
+        : {
+            '/api': {
+              target: backendTarget,
+              changeOrigin: true,
+            },
+            '/s': {
+              target: backendTarget,
+              changeOrigin: true,
+            },
+          },
     },
     resolve: {
       alias: {
