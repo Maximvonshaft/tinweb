@@ -69,10 +69,10 @@ export function DirectoryDrawer({ open, onOpenChange, disks }: DirectoryDrawerPr
             <div className="flex flex-wrap gap-2">
               {disks.map((item) => (
                 <Button
-                  key={item.name}
-                  variant={disk === item.name ? 'primary' : 'outline'}
+                  key={item.code}
+                  variant={disk === item.code ? 'primary' : 'outline'}
                   onClick={() => {
-                    setDisk(item.name);
+                    setDisk(item.code);
                     setStack([{ id: null, label: 'ROOT' }]);
                   }}
                 >

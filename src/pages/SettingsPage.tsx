@@ -83,7 +83,7 @@ export function SettingsPage() {
         <h2 className="font-mono text-sm tracking-[0.3em] text-[var(--fg-2)]">STORAGE HEALTH</h2>
         <div className="mt-4 space-y-4">
           {health?.disks.map((disk) => (
-            <div key={disk.name} className="rounded border border-[var(--line)] bg-[var(--bg)] p-4">
+            <div key={disk.code} className="rounded border border-[var(--line)] bg-[var(--bg)] p-4">
               <div className="flex items-center justify-between">
                 <span className="font-mono text-xs text-[var(--fg)]">{disk.name}</span>
                 <span className="text-xs text-[var(--fg-2)]">状态：{disk.status}</span>
