@@ -8,8 +8,10 @@
     "dev:mock": "cross-env ENABLE_MOCK=1 vite",
     "build": "tsc -b && vite build",
     "preview": "vite preview",
-    "lint": "eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0",
-    "test": "vitest"
+    "lint": "ESLINT_USE_FLAT_CONFIG=false node ./node_modules/eslint/bin/eslint.js . --ext ts,tsx --report-unused-disable-directives --max-warnings 0",
+    "test": "vitest",
+    "server": "npm run start --prefix server",
+    "server:dev": "npm run dev --prefix server"
   },
   "dependencies": {
     "@radix-ui/react-dialog": "^1.0.5",
