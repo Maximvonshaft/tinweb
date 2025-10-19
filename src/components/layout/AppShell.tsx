@@ -1,4 +1,4 @@
-import { useMemo, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import { Command, Layers, ListChecks, Menu, Search, Trash2, Upload, User } from 'lucide-react';
@@ -11,6 +11,9 @@ import { useHealthQuery } from '@/hooks/use-health';
 import { useToast } from '@/stores/toast';
 import { TaskCenterDrawer } from './TaskCenterDrawer';
 import { TaskPollingManager } from './TaskPollingManager';
+import { useFileUpload } from '@/hooks/use-file-upload';
+import { DirectoryDrawer } from './DirectoryDrawer';
+import { CommandPalette } from './CommandPalette';
 
 interface AppShellProps {
   children: ReactNode;
@@ -28,9 +31,12 @@ export function AppShell({ children }: AppShellProps) {
   const { push } = useToast();
   const { data: health } = useHealthQuery();
   const [taskDrawerOpen, setTaskDrawerOpen] = useState(false);
+  const [directoryOpen, setDirectoryOpen] = useState(false);
+  const [commandOpen, setCommandOpen] = useState(false);
 
   const disk = useDriveStore((state) => state.disk);
   const setDisk = useDriveStore((state) => state.setDisk);
+  const parentId = useDriveStore((state) => state.parentId);
   const search = useDriveStore((state) => state.search);
   const setSearch = useDriveStore((state) => state.setSearch);
 
@@ -43,18 +49,52 @@ export function AppShell({ children }: AppShellProps) {
   const clearAuth = useAuthStore((state) => state.clear);
 
   const disks = useMemo(() => health?.disks ?? [{ name: 'local', status: 'ok', latency_ms: 0, note: null }], [health]);
+  const uploadInputRef = useRef<HTMLInputElement | null>(null);
+  const searchInputRef = useRef<HTMLInputElement | null>(null);
+  const uploadFiles = useFileUpload();
 
   const onSearchSubmit: React.FormEventHandler<HTMLFormElement> = (event) => {
     event.preventDefault();
   };
 
+  useEffect(() => {
+    const handler = (event: KeyboardEvent) => {
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k') {
+        event.preventDefault();
+        setCommandOpen(true);
+      }
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, []);
+
   const onTriggerUpload = () => {
-    push({
-      id: '__route',
-      tone: 'neutral',
-      title: 'AWAITING PAYLOAD',
-      description: '上传器稍后接入（Uppy 通道），当前为布局预留位。',
-    });
+    uploadInputRef.current?.click();
+  };
+
+  const focusSearchInput = () => {
+    if (searchInputRef.current) {
+      searchInputRef.current.focus();
+    }
+  };
+
+  const onUploadChange: React.ChangeEventHandler<HTMLInputElement> = async (event) => {
+    const files = event.target.files;
+    if (!files || files.length === 0) {
+      return;
+    }
+    try {
+      const uploaded = await uploadFiles(files, { disk, parentId });
+      push({
+        tone: 'success',
+        title: 'UPLOAD COMPLETE',
+        description: `已上传 ${uploaded.length} 个文件。`,
+      });
+    } catch (error) {
+      push({ tone: 'danger', title: 'FAILED', description: (error as Error).message });
+    } finally {
+      event.target.value = '';
+    }
   };
 
   return (
@@ -111,7 +151,7 @@ export function AppShell({ children }: AppShellProps) {
       <div className="flex flex-1 flex-col">
         <header className="flex items-center justify-between border-b border-[var(--line)] bg-[var(--bg-2)] px-4 py-3">
           <div className="flex items-center gap-3">
-            <button className="md:hidden" onClick={() => push({ tone: 'neutral', title: '目录面板', description: '移动端目录树稍后提供。' })}>
+            <button className="md:hidden" onClick={() => setDirectoryOpen(true)}>
               <Menu size={18} />
             </button>
             <nav className="hidden items-center gap-4 md:flex">
@@ -131,6 +171,7 @@ export function AppShell({ children }: AppShellProps) {
           <form onSubmit={onSearchSubmit} className="relative hidden w-[320px] md:block">
             <Search size={16} className="absolute left-3 top-2.5 text-[var(--fg-2)]" />
             <Input
+              ref={searchInputRef}
               name="search"
               value={search}
               onChange={(event) => setSearch(event.target.value)}
@@ -143,7 +184,7 @@ export function AppShell({ children }: AppShellProps) {
               variant="ghost"
               className="hidden md:inline-flex"
               type="button"
-              onClick={() => push({ tone: 'neutral', title: 'COMMAND', description: '⌘K 命令面板待接入，敬请期待。' })}
+              onClick={() => setCommandOpen(true)}
             >
               <Command size={16} />
             </Button>
@@ -190,8 +231,21 @@ export function AppShell({ children }: AppShellProps) {
           <div className="h-full overflow-y-auto px-4 py-4 md:px-6">{children}</div>
         </main>
       </div>
+      <DirectoryDrawer open={directoryOpen} onOpenChange={setDirectoryOpen} disks={disks} />
       <TaskCenterDrawer open={taskDrawerOpen} onOpenChange={setTaskDrawerOpen} />
+      <CommandPalette
+        open={commandOpen}
+        onOpenChange={setCommandOpen}
+        onNavigate={(path) => navigate(path)}
+        onToggleTheme={toggleTheme}
+        onToggleDensity={() => setDensity(density === 'compact' ? 'standard' : 'compact')}
+        onOpenTasks={() => setTaskDrawerOpen(true)}
+        onTriggerUpload={onTriggerUpload}
+        onFocusSearch={focusSearchInput}
+        density={density}
+      />
       <TaskPollingManager />
+      <input ref={uploadInputRef} type="file" multiple className="hidden" onChange={onUploadChange} />
     </div>
   );
 }

@@ -1,6 +1,6 @@
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
-import { Kysely } from 'kysely';
+import type { Kysely } from 'kysely';
 import { env } from '../../config/env.js';
 import type { Database } from '../../database/schema.js';
 import { createUnauthorizedError } from '../../core/errors.js';

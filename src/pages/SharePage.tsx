@@ -2,18 +2,21 @@ import { useMemo, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { useShareDetail, useShareUnlock, useShareDownload } from '@/hooks/use-share';
+import { useShareDetail, useShareUnlock, useShareDownload, useSharePreview } from '@/hooks/use-share';
 import { useToast } from '@/stores/toast';
+import { FilePreviewDialog } from '@/components/FilePreviewDialog';
 
 export function SharePage() {
   const { token } = useParams();
   const { data, isLoading, isError, error, refetch } = useShareDetail(token);
   const unlockMutation = useShareUnlock(token);
   const downloadShare = useShareDownload();
+  const [previewOpen, setPreviewOpen] = useState(false);
   const { push } = useToast();
   const [password, setPassword] = useState('');
   const sessionKey = useMemo(() => (token ? `share:${token}` : 'share'), [token]);
   const sessionToken = token ? sessionStorage.getItem(sessionKey) : null;
+  const previewQuery = useSharePreview(token, sessionToken, previewOpen);
 
   if (!token) {
     return <div className="p-8 text-center text-sm text-[var(--fg-2)]">无效的分享链接。</div>;
@@ -102,9 +105,8 @@ export function SharePage() {
           </Button>
           <Button
             variant="outline"
-            onClick={() => {
-              push({ tone: 'neutral', title: 'PREVIEW', description: '浏览器预览将在后续版本提供。' });
-            }}
+            disabled={data.requires_password && !sessionToken}
+            onClick={() => setPreviewOpen(true)}
           >
             浏览器预览
           </Button>
@@ -112,6 +114,16 @@ export function SharePage() {
 
         <p className="text-xs text-[var(--fg-2)]">Single-use / Rate-limited / Logged</p>
       </div>
+      <FilePreviewDialog
+        open={previewOpen}
+        onOpenChange={setPreviewOpen}
+        data={previewQuery.data}
+        isLoading={previewQuery.isLoading || previewQuery.isFetching}
+        error={(previewQuery.error as Error) ?? null}
+        onRetry={() => {
+          void previewQuery.refetch();
+        }}
+      />
     </div>
   );
 }

@@ -6,6 +6,7 @@ import { createFilesRouter } from '../modules/files/files.router.js';
 import { createTasksRouter } from '../modules/tasks/tasks.router.js';
 import { createSharesRouter } from '../modules/shares/shares.router.js';
 import { createHealthRouter } from '../modules/health/health.router.js';
+import { createIndexerRouter } from '../modules/indexer/indexer.router.js';
 import { requireAuth } from '../core/middleware/auth.js';
 import { asyncHandler } from '../core/middleware/async-handler.js';
 import { sendSuccess } from '../core/envelope.js';
@@ -28,6 +29,7 @@ export const createApp = (context: ApplicationContext) => {
   app.use('/api/auth', createAuthRouter(context));
   app.use('/api/files', createFilesRouter(context));
   app.use('/api/tasks', createTasksRouter(context));
+  app.use('/api/indexer', createIndexerRouter(context));
   app.use('/s', createSharesRouter(context));
   app.use('/api/health', createHealthRouter(context));
 

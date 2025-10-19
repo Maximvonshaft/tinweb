@@ -17,6 +17,11 @@ export default defineConfig(({ command }) => {
         logger: true,
       }),
     ],
+    test: {
+      globals: true,
+      include: ['src/**/*.{test,spec}.{ts,tsx}'],
+      environment: 'node',
+    },
     server: {
       port: 5173,
       proxy: enableMock

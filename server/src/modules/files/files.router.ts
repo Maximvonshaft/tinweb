@@ -1,4 +1,6 @@
 import { Router } from 'express';
+import type { Express } from 'express';
+import multer from 'multer';
 import { z } from 'zod';
 import { asyncHandler } from '../../core/middleware/async-handler.js';
 import { sendSuccess } from '../../core/envelope.js';
@@ -6,12 +8,17 @@ import { requireAuth } from '../../core/middleware/auth.js';
 import type { ApplicationContext } from '../../app/context.js';
 import {
   createFolder,
+  createFileFromUpload,
   listFiles,
   renameFile,
+  getFileMetadata,
   resolveDisk,
   restoreFile,
   softDeleteFile
 } from './files.service.js';
+import { buildFilePreview, createPreviewStream, resolveMimeType } from './preview.service.js';
+import { createBadRequestError, createNotFoundError } from '../../core/errors.js';
+import { createShare } from '../shares/shares.service.js';
 
 const listSchema = z.object({
   disk: z.string().optional(),
@@ -63,8 +70,29 @@ const copySchema = z.object({
     })
 });
 
+const createShareSchema = z.object({
+  password: z.string().max(64).optional(),
+  expires_in_hours: z
+    .union([z.number(), z.string()])
+    .optional()
+    .transform((value) => {
+      if (value === undefined || value === null || value === '') {
+        return null;
+      }
+      const numeric = typeof value === 'number' ? value : Number(value);
+      if (Number.isNaN(numeric) || numeric <= 0) {
+        return null;
+      }
+      return Math.min(Math.round(numeric), 24 * 30);
+    })
+});
+
 export const createFilesRouter = (context: ApplicationContext) => {
   const router = Router();
+  const upload = multer({
+    storage: multer.memoryStorage(),
+    limits: { fileSize: 50 * 1024 * 1024 }
+  });
 
   router.get(
     '/',
@@ -112,6 +140,53 @@ export const createFilesRouter = (context: ApplicationContext) => {
       const ownerId = req.currentUser!.id;
       await createFolder(context.db, tenantId, payload.disk, payload.parent_id ?? null, payload.name, ownerId);
       sendSuccess(res, { created: true });
+    })
+  );
+
+  router.post(
+    '/upload',
+    requireAuth,
+    upload.array('files', 10),
+    asyncHandler(async (req, res) => {
+      const tenantId = req.currentUser!.tenantId;
+      const ownerId = req.currentUser!.id;
+      const disk = typeof req.body?.disk === 'string' && req.body.disk ? req.body.disk : undefined;
+      const parentRaw = req.body?.parent_id;
+      const parentId = (() => {
+        if (parentRaw === undefined || parentRaw === null || parentRaw === '' || parentRaw === 'null') {
+          return null;
+        }
+        const value = Number(parentRaw);
+        if (Number.isNaN(value)) {
+          throw createBadRequestError('父目录参数无效');
+        }
+        return value;
+      })();
+
+      const files = Array.isArray(req.files) ? (req.files as Express.Multer.File[]) : [];
+      if (files.length === 0) {
+        throw createBadRequestError('请选择要上传的文件');
+      }
+
+      const uploaded = [] as Array<{ id: number; name: string; path: string }>;
+      for (const file of files) {
+        const metadata = await createFileFromUpload(
+          context.db,
+          tenantId,
+          disk,
+          parentId,
+          {
+            originalName: file.originalname,
+            mimeType: file.mimetype ?? null,
+            size: file.size,
+            buffer: file.buffer
+          },
+          ownerId
+        );
+        uploaded.push({ id: metadata.id, name: metadata.name, path: metadata.path });
+      }
+
+      sendSuccess(res, { uploaded });
     })
   );
 
@@ -170,6 +245,64 @@ export const createFilesRouter = (context: ApplicationContext) => {
         ownerId
       });
       sendSuccess(res, { task_id: taskId });
+    })
+  );
+
+  router.post(
+    '/:id/share',
+    requireAuth,
+    asyncHandler(async (req, res) => {
+      const id = Number.parseInt(req.params.id, 10);
+      if (Number.isNaN(id)) {
+        throw createBadRequestError('文件 ID 无效');
+      }
+      const payload = createShareSchema.parse(req.body ?? {});
+      const tenantId = req.currentUser!.tenantId;
+      const ownerId = req.currentUser!.id;
+      const result = await createShare(context.db, tenantId, id, ownerId, {
+        password: payload.password ?? null,
+        expiresInHours: payload.expires_in_hours ?? null
+      });
+      sendSuccess(res, result);
+    })
+  );
+
+  router.get(
+    '/:id/preview',
+    requireAuth,
+    asyncHandler(async (req, res) => {
+      const id = Number.parseInt(req.params.id, 10);
+      if (Number.isNaN(id)) {
+        throw createBadRequestError('文件 ID 无效');
+      }
+      const tenantId = req.currentUser!.tenantId;
+      const metadata = await getFileMetadata(context.db, tenantId, id);
+      if (!metadata) {
+        throw createNotFoundError('文件不存在');
+      }
+      const preview = await buildFilePreview(metadata, `/api/files/${id}/raw`);
+      sendSuccess(res, preview);
+    })
+  );
+
+  router.get(
+    '/:id/raw',
+    requireAuth,
+    asyncHandler(async (req, res) => {
+      const id = Number.parseInt(req.params.id, 10);
+      if (Number.isNaN(id)) {
+        throw createBadRequestError('文件 ID 无效');
+      }
+      const tenantId = req.currentUser!.tenantId;
+      const metadata = await getFileMetadata(context.db, tenantId, id);
+      if (!metadata) {
+        throw createNotFoundError('文件不存在');
+      }
+      const stream = createPreviewStream(metadata);
+      res.setHeader('Content-Type', resolveMimeType(metadata));
+      res.setHeader('Content-Length', String(metadata.size));
+      res.setHeader('Content-Disposition', `inline; filename="${encodeURIComponent(metadata.name)}"`);
+      stream.pipe(res);
     })
   );
 

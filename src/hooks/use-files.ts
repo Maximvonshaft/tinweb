@@ -46,7 +46,7 @@ export function useCreateFolderMutation() {
 
   return useMutation({
     mutationFn: (payload: { name: string; disk: string; parent_id: string | number | null }) =>
-      client<FileItem>('folders', {
+      client<FileItem>('files/folders', {
         method: 'POST',
         body: JSON.stringify(payload),
       }),
