@@ -12,6 +12,7 @@ export class ShareManager {
       fileId: '2',
       requiresPassword: false,
       expiresAt: now + 1000 * 60 * 60 * 24,
+      createdAt: now,
     });
     this.addShare({
       token: 'secret-archive',
@@ -19,11 +20,16 @@ export class ShareManager {
       requiresPassword: true,
       password: '1234',
       expiresAt: now + 1000 * 60 * 60 * 12,
+      createdAt: now,
     });
   }
 
   getShare(token: string): ShareRecord | undefined {
     return this.shares.get(token);
+  }
+
+  isExpired(record: ShareRecord): boolean {
+    return record.expiresAt !== null && record.expiresAt < Date.now();
   }
 
   ensureSession(token: string, sessionToken: string | undefined): boolean {
