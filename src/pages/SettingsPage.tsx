@@ -5,6 +5,7 @@ import { useHealthQuery } from '@/hooks/use-health';
 import { useToast } from '@/stores/toast';
 import { useAuthStore } from '@/stores/auth';
 import { useApiClient } from '@/hooks/use-api-client';
+import type { IndexerSummary } from '@/types/api';
 
 export function SettingsPage() {
   const { API_BASE_URL, SHARE_BASE_URL, SHARE_API_BASE_URL } = useAppConfig();
@@ -19,8 +20,12 @@ export function SettingsPage() {
 
   const triggerIndexer = async () => {
     try {
-      await client('indexer/run', { method: 'POST' });
-      push({ tone: 'success', title: 'INDEX TRIGGERED', description: '索引任务已创建。' });
+      const summary = await client<IndexerSummary>('indexer/run', { method: 'POST' });
+      push({
+        tone: 'success',
+        title: 'INDEX TRIGGERED',
+        description: `已索引 ${summary.files} 个文件 / ${summary.directories} 个目录，耗时 ${summary.duration_ms}ms。`,
+      });
     } catch (error) {
       push({ tone: 'danger', title: 'FAILED', description: (error as Error).message });
     }

@@ -1,8 +1,14 @@
 import { useCallback } from 'react';
 import { useMutation, useQuery } from '@tanstack/react-query';
-import { ApiError } from './use-api-client';
+import { ApiError, useApiClient } from './use-api-client';
 import { useAppConfig } from '@/providers/config-provider';
-import type { ShareDetail, ShareUnlockResponse, ShareDownloadInfo } from '@/types/api';
+import type {
+  FilePreviewData,
+  ShareCreationResponse,
+  ShareDetail,
+  ShareDownloadInfo,
+  ShareUnlockResponse
+} from '@/types/api';
 
 function buildShareUrl(base: string, path: string): string {
   if (/^https?:\/\//i.test(path)) return path;
@@ -62,4 +68,30 @@ export function useShareDownload() {
       }),
     [requestShare],
   );
+}
+
+export function useSharePreview(token: string | undefined, sessionToken: string | null, enabled = true) {
+  const requestShare = useShareRequest();
+  return useQuery({
+    queryKey: ['share-preview', token, sessionToken],
+    enabled: Boolean(token) && enabled,
+    queryFn: () =>
+      requestShare<FilePreviewData>(`s/${token}/preview`, {
+        headers: sessionToken ? { 'X-Share-Session': sessionToken } : undefined,
+      }),
+  });
+}
+
+export function useShareCreate() {
+  const client = useApiClient();
+  return useMutation({
+    mutationFn: (payload: { fileId: number | string; password?: string | null; expires_in_hours?: number | null }) =>
+      client<ShareCreationResponse>(`files/${payload.fileId}/share`, {
+        method: 'POST',
+        body: JSON.stringify({
+          password: payload.password ?? undefined,
+          expires_in_hours: payload.expires_in_hours ?? undefined,
+        }),
+      }),
+  });
 }

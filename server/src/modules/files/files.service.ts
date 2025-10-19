@@ -1,7 +1,11 @@
-import { Kysely, sql } from 'kysely';
+import { sql } from 'kysely';
+import type { Kysely } from 'kysely';
+import path from 'node:path';
+import { createHash } from 'node:crypto';
 import type { Database, FilesTable } from '../../database/schema.js';
 import { createBadRequestError, createConflictError, createNotFoundError } from '../../core/errors.js';
 import { nowIso } from '../../core/utils/time.js';
+import { ensureDirectory, writeFileToStorage } from './storage.js';
 
 export interface ListFilesOptions {
   tenantId: string;
@@ -30,6 +34,23 @@ export interface ListFilesResultItem {
 export interface ListFilesResult {
   items: ListFilesResultItem[];
   nextCursor: string | null;
+}
+
+export interface FileMetadata {
+  id: number;
+  tenant_id: string;
+  disk_id: number;
+  disk_code: string;
+  parent_id: number | null;
+  name: string;
+  ext: string | null;
+  mime: string | null;
+  hash: string | null;
+  size: number;
+  path: string;
+  is_dir: number;
+  deleted_at: string | null;
+  updated_at: string;
 }
 
 export const listFiles = async (db: Kysely<Database>, options: ListFilesOptions): Promise<ListFilesResult> => {
@@ -102,6 +123,7 @@ export const createFolder = async (
 
   const parentPath = parent ? parent.path : '/';
   const path = buildPath(parentPath, name);
+  await ensureDirectory(tenantId, disk.code, path);
   await db
     .insertInto('files')
     .values({
@@ -121,6 +143,87 @@ export const createFolder = async (
       owner_id: ownerId
     })
     .execute();
+};
+
+interface UploadedFileInput {
+  originalName: string;
+  mimeType: string | null;
+  size: number;
+  buffer: Buffer;
+}
+
+export const createFileFromUpload = async (
+  db: Kysely<Database>,
+  tenantId: string,
+  diskCode: string | undefined,
+  parentId: number | null,
+  file: UploadedFileInput,
+  ownerId: number
+): Promise<FileMetadata> => {
+  return db.transaction().execute(async (trx) => {
+    const disk = await resolveDisk(trx, tenantId, diskCode);
+    const parent = parentId ? await fetchFile(trx, tenantId, parentId) : null;
+
+    if (parentId && !parent) {
+      throw createNotFoundError('父目录不存在');
+    }
+    if (parent && parent.is_dir !== 1) {
+      throw createBadRequestError('父节点不是目录');
+    }
+
+    await ensureUniqueName(trx, tenantId, disk.id, parentId, file.originalName);
+
+    const parentPath = parent ? parent.path : '/';
+    const recordPath = buildPath(parentPath, file.originalName);
+    const ext = (() => {
+      const value = path.extname(file.originalName);
+      return value ? value.replace(/^\./, '').toLowerCase() : null;
+    })();
+    const hash = createHash('sha256').update(file.buffer).digest('hex');
+    const now = nowIso();
+
+    const insertResult = await trx
+      .insertInto('files')
+      .values({
+        tenant_id: tenantId,
+        disk_id: disk.id,
+        parent_id: parentId,
+        name: file.originalName,
+        ext,
+        mime: file.mimeType,
+        hash,
+        size: file.size,
+        path: recordPath,
+        is_dir: 0,
+        deleted_at: null,
+        created_at: now,
+        updated_at: now,
+        owner_id: ownerId
+      })
+      .executeTakeFirst();
+
+    const insertedId = insertResult?.insertId ? Number(insertResult.insertId) : undefined;
+    const fileId = insertedId
+      ?? (await trx
+        .selectFrom('files')
+        .select('id')
+        .where('tenant_id', '=', tenantId)
+        .orderBy('id', 'desc')
+        .executeTakeFirst())?.id;
+
+    if (!fileId) {
+      throw new Error('写入上传文件记录失败');
+    }
+
+    const metadata = await getFileMetadata(trx, tenantId, fileId);
+    if (!metadata) {
+      throw new Error('获取上传文件信息失败');
+    }
+
+    await writeFileToStorage(tenantId, metadata.disk_code, metadata.path, file.buffer);
+
+    return metadata;
+  });
 };
 
 export const renameFile = async (
@@ -215,6 +318,56 @@ export const emptyRecycleBin = async (db: Kysely<Database>, tenantId: string) =>
     .where('tenant_id', '=', tenantId)
     .where('deleted_at', 'is not', null)
     .execute();
+};
+
+export const getFileMetadata = async (
+  db: Kysely<Database>,
+  tenantId: string,
+  fileId: number
+): Promise<FileMetadata | null> => {
+  const row = await db
+    .selectFrom('files')
+    .innerJoin('disks', 'disks.id', 'files.disk_id')
+    .select([
+      'files.id',
+      'files.tenant_id',
+      'files.disk_id',
+      'disks.code as disk_code',
+      'files.parent_id',
+      'files.name',
+      'files.ext',
+      'files.mime',
+      'files.hash',
+      'files.size',
+      'files.path',
+      'files.is_dir',
+      'files.deleted_at',
+      'files.updated_at'
+    ])
+    .where('files.id', '=', fileId)
+    .where('files.tenant_id', '=', tenantId)
+    .executeTakeFirst();
+
+  if (!row) {
+    return null;
+  }
+
+  return {
+    id: row.id,
+    tenant_id: row.tenant_id,
+    disk_id: row.disk_id,
+    disk_code: row.disk_code,
+    parent_id: row.parent_id ?? null,
+    name: row.name,
+    ext: row.ext,
+    mime: row.mime,
+    hash: row.hash,
+    size: row.size,
+    path: row.path,
+    is_dir: row.is_dir,
+    deleted_at: row.deleted_at ?? null,
+    updated_at: row.updated_at
+  };
 };
 
 export const resolveDisk = async (db: Kysely<Database>, tenantId: string, diskCode?: string) => {

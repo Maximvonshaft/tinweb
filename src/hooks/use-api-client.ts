@@ -33,14 +33,19 @@ export function useApiClient() {
       const controller = new AbortController();
       const timeout = setTimeout(() => controller.abort(), 45_000);
       try {
+        const isFormData = typeof FormData !== 'undefined' && init.body instanceof FormData;
+        const headers = new Headers(init.headers as HeadersInit | undefined);
+        if (!isFormData && !headers.has('Content-Type')) {
+          headers.set('Content-Type', 'application/json');
+        }
+        if (token && !headers.has('Authorization')) {
+          headers.set('Authorization', `Bearer ${token}`);
+        }
+
         const response = await fetch(buildUrl(API_BASE_URL, path), {
           ...init,
           signal: controller.signal,
-          headers: {
-            'Content-Type': 'application/json',
-            ...(init.headers ?? {}),
-            ...(token ? { Authorization: `Bearer ${token}` } : {}),
-          },
+          headers,
         });
 
         const text = await response.text();

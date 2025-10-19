@@ -1,4 +1,4 @@
-import { Kysely } from 'kysely';
+import type { Kysely } from 'kysely';
 import type { Database } from '../../database/schema.js';
 import { createNotFoundError } from '../../core/errors.js';
 

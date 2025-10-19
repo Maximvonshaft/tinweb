@@ -5,10 +5,11 @@ import { fileURLToPath } from 'node:url';
 import type { Express } from 'express';
 import type { Kysely } from 'kysely';
 import type { Database } from '../src/database/schema.js';
+import type { TaskScheduler } from '../src/modules/tasks/task-scheduler.js';
 
 let app: Express;
 let db: Kysely<Database>;
-let scheduler: ReturnType<(typeof import('../src/modules/tasks/task-scheduler.js'))['createTaskScheduler']> | undefined;
+let scheduler: TaskScheduler | undefined;
 let token: string;
 let rootId: number;
 

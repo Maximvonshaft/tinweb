@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { ChevronRight, Copy, Folder, Grid3x3, Loader2, MoreHorizontal, Share2, Table, Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useFilesQuery, useCreateFolderMutation, useDeleteMutation } from '@/hooks/use-files';
@@ -7,6 +7,10 @@ import { useToast } from '@/stores/toast';
 import type { FileItem } from '@/types/api';
 import { useApiClient } from '@/hooks/use-api-client';
 import { useTasksStore } from '@/stores/tasks';
+import { FilePreviewDialog } from '@/components/FilePreviewDialog';
+import { useDriveFilePreview } from '@/hooks/use-preview';
+import { useShareCreate } from '@/hooks/use-share';
+import { useAppConfig } from '@/providers/config-provider';
 
 function formatSize(bytes: number): string {
   if (!bytes) return '—';
@@ -38,6 +42,11 @@ export function DrivePage() {
   const deleteMutation = useDeleteMutation();
   const client = useApiClient();
   const upsertTask = useTasksStore((state) => state.upsertTask);
+  const [previewTarget, setPreviewTarget] = useState<FileItem | null>(null);
+  const [previewOpen, setPreviewOpen] = useState(false);
+  const previewQuery = useDriveFilePreview(previewTarget ? previewTarget.id : null, previewOpen);
+  const shareMutation = useShareCreate();
+  const { SHARE_BASE_URL } = useAppConfig();
 
   const items = useMemo(() => filesQuery.data?.pages.flatMap((page) => page.items) ?? [], [filesQuery.data]);
 
@@ -69,6 +78,46 @@ export function DrivePage() {
       await Promise.all(currentSelection.map((item) => deleteMutation.mutateAsync({ id: item.id })));
       push({ tone: 'warn', title: 'MOVED TO RECYCLE', description: '可在回收站恢复或清空。' });
       clearSelection();
+    } catch (error) {
+      push({ tone: 'danger', title: 'FAILED', description: (error as Error).message });
+    }
+  };
+
+  const handleShare = async (item: FileItem) => {
+    if (shareMutation.isPending) {
+      push({ tone: 'warn', title: 'HOLD ON', description: '正在生成外链，请稍候…' });
+      return;
+    }
+    const expiresInput = window.prompt('输入外链有效期（小时，可留空为 24 小时）', '24');
+    if (expiresInput === null) {
+      return;
+    }
+    const trimmed = expiresInput.trim();
+    let expiresInHours: number | null = 24;
+    if (trimmed !== '') {
+      const parsed = Number(trimmed);
+      if (Number.isNaN(parsed) || parsed <= 0) {
+        push({ tone: 'warn', title: 'INVALID', description: '请输入正确的小时数。' });
+        return;
+      }
+      expiresInHours = Math.max(1, Math.round(parsed));
+    }
+    const passwordInput = window.prompt('设置访问口令（可留空）') ?? '';
+    try {
+      const result = await shareMutation.mutateAsync({
+        fileId: item.id,
+        expires_in_hours: expiresInHours ?? undefined,
+        password: passwordInput.trim() ? passwordInput.trim() : undefined,
+      });
+      const base = SHARE_BASE_URL.replace(/\/$/, '');
+      const shareUrl = `${base}/${result.token}`;
+      const extra = result.requires_password ? '（需口令）' : '';
+      try {
+        await navigator.clipboard.writeText(shareUrl);
+        push({ tone: 'success', title: 'SHARE READY', description: `外链已复制${extra}：${shareUrl}` });
+      } catch {
+        push({ tone: 'success', title: 'SHARE READY', description: `外链${extra}：${shareUrl}` });
+      }
     } catch (error) {
       push({ tone: 'danger', title: 'FAILED', description: (error as Error).message });
     }
@@ -112,7 +161,8 @@ export function DrivePage() {
           if (item.is_dir) {
             setParentId(String(item.id));
           } else {
-            push({ tone: 'neutral', title: 'PREVIEW', description: '预览器稍后接入，当前为示意。' });
+            setPreviewTarget(item);
+            setPreviewOpen(true);
           }
         }}
         className={`compact-row grid grid-cols-[2fr_1fr_1fr_1fr_1fr_auto] items-center gap-2 rounded px-3 text-sm transition ${
@@ -128,7 +178,14 @@ export function DrivePage() {
         <span className="font-mono text-xs text-[var(--fg-2)]">{item.disk}</span>
         <span className="font-mono text-xs text-[var(--fg-2)]">{hashPreview(item.hash)}</span>
         <div className="flex items-center justify-end gap-2 text-[var(--fg-2)]">
-          <Share2 size={16} className="cursor-pointer hover:text-[var(--accent)]" onClick={() => push({ tone: 'neutral', title: 'SHARE', description: '点击生成外链（Mock）' })} />
+          <Share2
+            size={16}
+            className={`cursor-pointer hover:text-[var(--accent)] ${shareMutation.isPending ? 'opacity-50' : ''}`}
+            onClick={(event) => {
+              event.stopPropagation();
+              void handleShare(item);
+            }}
+          />
           <Copy
             size={16}
             className="cursor-pointer hover:text-[var(--accent)]"
@@ -174,7 +231,8 @@ export function DrivePage() {
               if (item.is_dir) {
                 setParentId(String(item.id));
               } else {
-                push({ tone: 'neutral', title: 'PREVIEW', description: '预览器稍后接入，当前为示意。' });
+                setPreviewTarget(item);
+                setPreviewOpen(true);
               }
             }}
           >
@@ -185,8 +243,11 @@ export function DrivePage() {
               </div>
               <Share2
                 size={16}
-                className="cursor-pointer text-[var(--fg-2)] hover:text-[var(--accent)]"
-                onClick={() => push({ tone: 'neutral', title: 'SHARE', description: '点击生成外链（Mock）' })}
+                className={`cursor-pointer text-[var(--fg-2)] hover:text-[var(--accent)] ${shareMutation.isPending ? 'opacity-50' : ''}`}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  void handleShare(item);
+                }}
               />
             </div>
             <p className="mt-3 font-mono text-[10px] text-[var(--fg-2)]">{formatSize(item.size)}</p>
@@ -274,6 +335,16 @@ export function DrivePage() {
         </div>
       </div>
       {viewMode === 'grid' ? gridView : tableView}
+      <FilePreviewDialog
+        open={previewOpen}
+        onOpenChange={setPreviewOpen}
+        data={previewQuery.data}
+        isLoading={previewQuery.isLoading || previewQuery.isFetching}
+        error={(previewQuery.error as Error) ?? null}
+        onRetry={() => {
+          void previewQuery.refetch();
+        }}
+      />
     </div>
   );
 }

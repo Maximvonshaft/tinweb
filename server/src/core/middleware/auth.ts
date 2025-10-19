@@ -2,7 +2,7 @@ import type { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
 import { env } from '../../config/env.js';
 import { createUnauthorizedError } from '../errors.js';
-import { RequestUser } from '../types.js';
+import type { RequestUser } from '../types.js';
 
 interface AccessTokenPayload {
   sub: number;

@@ -53,6 +53,25 @@ export interface ShareDownloadInfo {
   headers?: Record<string, string>;
 }
 
+export interface ShareCreationResponse {
+  token: string;
+  requires_password: boolean;
+  expires_at: string | null;
+}
+
+export interface FilePreviewData {
+  id: number | string;
+  name: string;
+  size: number;
+  mime: string;
+  hash: string | null;
+  updated_at: string;
+  kind: 'text' | 'image' | 'binary';
+  content?: string;
+  dataUrl?: string;
+  downloadPath: string;
+}
+
 export interface UploadInitResponse {
   done: boolean;
   upload_id: string;
@@ -84,4 +103,11 @@ export interface Envelope<T> {
   code: number;
   message: string;
   data: T;
+}
+
+export interface IndexerSummary {
+  files: number;
+  directories: number;
+  duration_ms: number;
+  indexed_at: string;
 }
