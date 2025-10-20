@@ -1,3 +1,11 @@
+export interface FileShareInfo {
+  id: number;
+  token: string;
+  expires_at: string | null;
+  requires_password: boolean;
+  created_at: string;
+}
+
 export interface FileItem {
   id: number | string;
   is_dir: boolean;
@@ -10,6 +18,7 @@ export interface FileItem {
   hash?: string | null;
   updated_at: string;
   parent_id: number | string | null;
+  shares?: FileShareInfo[];
 }
 
 export interface FileListResponse {
@@ -58,6 +67,16 @@ export interface ShareCreationResponse {
   token: string;
   requires_password: boolean;
   expires_at: string | null;
+}
+
+export interface ShareDirectoryResponse {
+  current: FileItem;
+  breadcrumbs: Array<{ id: number | string; name: string }>;
+  items: FileItem[];
+}
+
+export interface FileShareListResponse {
+  items: FileShareInfo[];
 }
 
 export interface FilePreviewData {

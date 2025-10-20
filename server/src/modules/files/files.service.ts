@@ -1,5 +1,6 @@
 import { sql } from 'kysely';
 import type { Kysely } from 'kysely';
+import dayjs from 'dayjs';
 import path from 'node:path';
 import { createHash } from 'node:crypto';
 import type { Database, FilesTable } from '../../database/schema.js';
@@ -29,11 +30,20 @@ export interface ListFilesResultItem {
   hash: string | null;
   updated_at: string;
   parent_id: number | null;
+  shares: FileShareSummary[];
 }
 
 export interface ListFilesResult {
   items: ListFilesResultItem[];
   nextCursor: string | null;
+}
+
+export interface FileShareSummary {
+  id: number;
+  token: string;
+  expires_at: string | null;
+  requires_password: boolean;
+  created_at: string;
 }
 
 export interface FileMetadata {
@@ -95,7 +105,41 @@ export const listFiles = async (db: Kysely<Database>, options: ListFilesOptions)
     .execute();
 
   const hasMore = rows.length > pageSize;
-  const items = rows.slice(0, pageSize).map((row) => mapFileRow(row, disk.code));
+  let items = rows.slice(0, pageSize).map((row) => mapFileRow(row, disk.code));
+
+  if (items.length > 0) {
+    const fileIds = items.map((item) => item.id);
+    const shareRows = await db
+      .selectFrom('shares')
+      .select(['id', 'file_id', 'token', 'expires_at', 'requires_password', 'created_at'])
+      .where('tenant_id', '=', options.tenantId)
+      .where('file_id', 'in', fileIds)
+      .execute();
+
+    const now = dayjs();
+    const shareMap = new Map<number, FileShareSummary[]>();
+
+    shareRows.forEach((share) => {
+      if (share.expires_at && dayjs(share.expires_at).isBefore(now)) {
+        return;
+      }
+      const list = shareMap.get(share.file_id) ?? [];
+      list.push({
+        id: share.id,
+        token: share.token,
+        expires_at: share.expires_at ?? null,
+        requires_password: share.requires_password === 1,
+        created_at: share.created_at
+      });
+      shareMap.set(share.file_id, list);
+    });
+
+    items = items.map((item) => ({
+      ...item,
+      shares: shareMap.get(item.id) ?? []
+    }));
+  }
+
   const nextCursor = hasMore ? String(offset + pageSize) : null;
 
   return { items, nextCursor };
@@ -427,7 +471,10 @@ const buildPath = (parentPath: string, name: string) => {
   return `${parentPath}/${name}`;
 };
 
-const mapFileRow = (row: Pick<FilesTable, 'id' | 'name' | 'is_dir' | 'ext' | 'mime' | 'size' | 'path' | 'hash' | 'updated_at' | 'parent_id'>, diskCode: string): ListFilesResultItem => ({
+const mapFileRow = (
+  row: Pick<FilesTable, 'id' | 'name' | 'is_dir' | 'ext' | 'mime' | 'size' | 'path' | 'hash' | 'updated_at' | 'parent_id'>,
+  diskCode: string
+): ListFilesResultItem => ({
   id: row.id,
   name: row.name,
   is_dir: row.is_dir === 1,
@@ -438,7 +485,8 @@ const mapFileRow = (row: Pick<FilesTable, 'id' | 'name' | 'is_dir' | 'ext' | 'mi
   path: row.path,
   hash: row.hash,
   updated_at: row.updated_at,
-  parent_id: row.parent_id ?? null
+  parent_id: row.parent_id ?? null,
+  shares: []
 });
 
 const collectDescendantIds = async (

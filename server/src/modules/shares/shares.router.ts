@@ -3,7 +3,14 @@ import { z } from 'zod';
 import { asyncHandler } from '../../core/middleware/async-handler.js';
 import { sendSuccess } from '../../core/envelope.js';
 import type { ApplicationContext } from '../../app/context.js';
-import { getShareContent, getShareDetail, getShareDownloadInfo, getSharePreview, unlockShare } from './shares.service.js';
+import {
+  getShareContent,
+  getShareDetail,
+  getShareDirectoryEntries,
+  getShareDownloadInfo,
+  getSharePreview,
+  unlockShare
+} from './shares.service.js';
 import { resolveMimeType } from '../files/preview.service.js';
 
 const unlockSchema = z.object({
@@ -18,6 +25,19 @@ export const createSharesRouter = (context: ApplicationContext) => {
     asyncHandler(async (req, res) => {
       const detail = await getShareDetail(context.db, req.params.token);
       sendSuccess(res, detail);
+    })
+  );
+
+  router.get(
+    '/:token/files',
+    asyncHandler(async (req, res) => {
+      const sessionHeader = req.header('x-share-session');
+      const sessionQuery = typeof req.query.session === 'string' ? req.query.session : undefined;
+      const sessionToken = sessionHeader ?? sessionQuery;
+      const parentParam = typeof req.query.parent === 'string' ? Number.parseInt(req.query.parent, 10) : undefined;
+      const parentId = parentParam && !Number.isNaN(parentParam) ? parentParam : undefined;
+      const listing = await getShareDirectoryEntries(context.db, req.params.token, sessionToken, parentId);
+      sendSuccess(res, listing);
     })
   );
 
