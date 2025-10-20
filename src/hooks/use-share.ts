@@ -1,13 +1,16 @@
 import { useCallback } from 'react';
-import { useMutation, useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ApiError, useApiClient } from './use-api-client';
 import { useAppConfig } from '@/providers/config-provider';
 import type {
   FilePreviewData,
+  FileShareListResponse,
+  FileShareInfo,
   ShareCreationResponse,
   ShareDetail,
   ShareDownloadInfo,
-  ShareUnlockResponse
+  ShareUnlockResponse,
+  ShareDirectoryResponse
 } from '@/types/api';
 
 function buildShareUrl(base: string, path: string): string {
@@ -84,6 +87,7 @@ export function useSharePreview(token: string | undefined, sessionToken: string 
 
 export function useShareCreate() {
   const client = useApiClient();
+  const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (payload: { fileId: number | string; password?: string | null; expires_in_hours?: number | null }) =>
       client<ShareCreationResponse>(`files/${payload.fileId}/share`, {
@@ -93,5 +97,72 @@ export function useShareCreate() {
           expires_in_hours: payload.expires_in_hours ?? undefined,
         }),
       }),
+    onSuccess: (_data, variables) => {
+      queryClient.invalidateQueries({ queryKey: ['files'] });
+      queryClient.invalidateQueries({ queryKey: ['file-shares', variables.fileId] });
+    }
+  });
+}
+
+export function useShareDirectory(
+  token: string | undefined,
+  sessionToken: string | null,
+  parentId?: number | null,
+  enabled = true
+) {
+  const requestShare = useShareRequest();
+  return useQuery({
+    queryKey: ['share-directory', token, sessionToken, parentId ?? null],
+    enabled: Boolean(token) && enabled,
+    queryFn: () =>
+      requestShare<ShareDirectoryResponse>(
+        `s/${token}/files${parentId ? `?parent=${parentId}` : ''}`,
+        {
+          headers: sessionToken ? { 'X-Share-Session': sessionToken } : undefined
+        }
+      )
+  });
+}
+
+export function useFileShares(fileId: number | string | null | undefined) {
+  const client = useApiClient();
+  return useQuery<FileShareListResponse, ApiError>({
+    queryKey: ['file-shares', fileId],
+    enabled: Boolean(fileId),
+    queryFn: () => client<FileShareListResponse>(`shares/file/${fileId}`)
+  });
+}
+
+export function useShareUpdateMutation() {
+  const client = useApiClient();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (payload: { shareId: number; fileId: number | string; expires_in_hours?: number | null; expires_at?: string | null }) =>
+      client<FileShareInfo>(`shares/${payload.shareId}`, {
+        method: 'PATCH',
+        body: JSON.stringify({
+          expires_in_hours: payload.expires_in_hours ?? undefined,
+          expires_at: payload.expires_at ?? undefined
+        })
+      }),
+    onSuccess: (_data, variables) => {
+      queryClient.invalidateQueries({ queryKey: ['files'] });
+      queryClient.invalidateQueries({ queryKey: ['file-shares', variables.fileId] });
+    }
+  });
+}
+
+export function useShareDeleteMutation() {
+  const client = useApiClient();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (payload: { shareId: number; fileId: number | string }) =>
+      client<{ removed: true }>(`shares/${payload.shareId}`, {
+        method: 'DELETE'
+      }),
+    onSuccess: (_data, variables) => {
+      queryClient.invalidateQueries({ queryKey: ['files'] });
+      queryClient.invalidateQueries({ queryKey: ['file-shares', variables.fileId] });
+    }
   });
 }

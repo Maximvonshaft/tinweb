@@ -11,6 +11,7 @@ import {
 } from '../../core/errors.js';
 import { nowIso } from '../../core/utils/time.js';
 import { getFileMetadata } from '../files/files.service.js';
+import type { FileMetadata, FileShareSummary } from '../files/files.service.js';
 import { buildFilePreview, createPreviewStream } from '../files/preview.service.js';
 import type { FilePreviewResult } from '../files/preview.service.js';
 
@@ -41,6 +42,26 @@ export interface ShareCreationResult {
   token: string;
   requires_password: boolean;
   expires_at: string | null;
+}
+
+export interface ShareDirectoryItem {
+  id: number;
+  name: string;
+  is_dir: boolean;
+  ext: string | null;
+  mime: string | null;
+  size: number;
+  disk: string;
+  path: string;
+  hash: string | null;
+  updated_at: string;
+  parent_id: number | null;
+}
+
+export interface ShareDirectoryResult {
+  current: ShareDirectoryItem;
+  breadcrumbs: Array<{ id: number; name: string }>;
+  items: ShareDirectoryItem[];
 }
 
 interface CreateShareOptions {
@@ -307,4 +328,236 @@ export const getShareContent = async (
     metadata,
     stream: createPreviewStream(metadata)
   };
+};
+
+const isDescendantOf = (candidate: FileMetadata, root: FileMetadata) => {
+  if (candidate.id === root.id) {
+    return true;
+  }
+  if (root.path === '/' || root.path === '') {
+    return true;
+  }
+  const prefix = root.path.endsWith('/') ? root.path : `${root.path}/`;
+  return candidate.path === root.path || candidate.path.startsWith(prefix);
+};
+
+const toShareItem = (row: {
+  id: number;
+  name: string;
+  is_dir: number;
+  ext: string | null;
+  mime: string | null;
+  size: number;
+  path: string;
+  hash: string | null;
+  updated_at: string;
+  parent_id: number | null;
+  disk_code: string;
+}): ShareDirectoryItem => ({
+  id: row.id,
+  name: row.name,
+  is_dir: row.is_dir === 1,
+  ext: row.ext,
+  mime: row.mime,
+  size: row.size,
+  disk: row.disk_code,
+  path: row.path,
+  hash: row.hash,
+  updated_at: row.updated_at,
+  parent_id: row.parent_id ?? null
+});
+
+const metadataToShareItem = (metadata: FileMetadata): ShareDirectoryItem => ({
+  id: metadata.id,
+  name: metadata.name,
+  is_dir: metadata.is_dir === 1,
+  ext: metadata.ext,
+  mime: metadata.mime,
+  size: metadata.size,
+  disk: metadata.disk_code,
+  path: metadata.path,
+  hash: metadata.hash,
+  updated_at: metadata.updated_at,
+  parent_id: metadata.parent_id ?? null
+});
+
+export const getShareDirectoryEntries = async (
+  db: Kysely<Database>,
+  token: string,
+  sessionToken: string | undefined,
+  parentId?: number | null
+): Promise<ShareDirectoryResult> => {
+  const share = await ensureShareAccessible(db, token, sessionToken);
+  const root = await getFileMetadata(db, share.tenant_id, share.file_id);
+  if (!root) {
+    throw createNotFoundError('分享文件不存在');
+  }
+  if (root.is_dir !== 1) {
+    throw createBadRequestError('分享的不是目录');
+  }
+
+  let target: FileMetadata = root;
+  if (parentId && parentId !== root.id) {
+    const candidate = await getFileMetadata(db, share.tenant_id, parentId);
+    if (!candidate || candidate.deleted_at) {
+      throw createNotFoundError('目录不存在');
+    }
+    if (candidate.is_dir !== 1) {
+      throw createBadRequestError('目标不是目录');
+    }
+    if (!isDescendantOf(candidate, root)) {
+      throw createForbiddenError('超出分享范围');
+    }
+    target = candidate;
+  }
+
+  const rows = await db
+    .selectFrom('files')
+    .innerJoin('disks', 'disks.id', 'files.disk_id')
+    .select([
+      'files.id',
+      'files.name',
+      'files.is_dir',
+      'files.ext',
+      'files.mime',
+      'files.size',
+      'files.path',
+      'files.hash',
+      'files.updated_at',
+      'files.parent_id',
+      'disks.code as disk_code'
+    ])
+    .where('files.tenant_id', '=', share.tenant_id)
+    .where('files.parent_id', '=', target.id)
+    .where('files.deleted_at', 'is', null)
+    .orderBy('files.is_dir', 'desc')
+    .orderBy('files.name', 'asc')
+    .execute();
+
+  const items = rows.map((row) => toShareItem(row));
+
+  const breadcrumbs: Array<{ id: number; name: string }> = [];
+  let current: FileMetadata | null = target;
+  while (current) {
+    breadcrumbs.push({ id: current.id, name: current.name });
+    if (current.id === root.id) {
+      break;
+    }
+    if (!current.parent_id) {
+      break;
+    }
+    const parent = await getFileMetadata(db, share.tenant_id, current.parent_id);
+    if (!parent || parent.deleted_at) {
+      break;
+    }
+    if (!isDescendantOf(parent, root)) {
+      break;
+    }
+    current = parent;
+  }
+
+  breadcrumbs.reverse();
+
+  return {
+    current: metadataToShareItem(target),
+    breadcrumbs,
+    items
+  };
+};
+
+export const listActiveSharesForFile = async (
+  db: Kysely<Database>,
+  tenantId: string,
+  fileId: number
+): Promise<FileShareSummary[]> => {
+  const shares = await db
+    .selectFrom('shares')
+    .select(['id', 'token', 'expires_at', 'requires_password', 'created_at'])
+    .where('tenant_id', '=', tenantId)
+    .where('file_id', '=', fileId)
+    .orderBy('created_at', 'desc')
+    .execute();
+
+  const now = dayjs();
+  return shares
+    .filter((share) => !share.expires_at || dayjs(share.expires_at).isAfter(now))
+    .map((share) => ({
+      id: share.id,
+      token: share.token,
+      expires_at: share.expires_at ?? null,
+      requires_password: share.requires_password === 1,
+      created_at: share.created_at
+    }));
+};
+
+interface UpdateShareOptions {
+  expiresInHours?: number | null;
+  expiresAt?: string | null;
+}
+
+export const updateShare = async (
+  db: Kysely<Database>,
+  tenantId: string,
+  shareId: number,
+  options: UpdateShareOptions
+): Promise<FileShareSummary> => {
+  const share = await db
+    .selectFrom('shares')
+    .select(['id', 'token', 'expires_at', 'requires_password', 'created_at'])
+    .where('tenant_id', '=', tenantId)
+    .where('id', '=', shareId)
+    .executeTakeFirst();
+
+  if (!share) {
+    throw createNotFoundError('分享不存在');
+  }
+
+  let expiresAt: string | null = share.expires_at ?? null;
+  if (options.expiresAt !== undefined) {
+    expiresAt = options.expiresAt;
+  } else if (options.expiresInHours !== undefined) {
+    if (options.expiresInHours === null) {
+      expiresAt = null;
+    } else if (options.expiresInHours <= 0) {
+      throw createBadRequestError('无效的分享时效');
+    } else {
+      expiresAt = dayjs().add(options.expiresInHours, 'hour').toISOString();
+    }
+  }
+
+  if (expiresAt && dayjs(expiresAt).isBefore(dayjs())) {
+    throw createBadRequestError('过期时间需晚于当前时间');
+  }
+
+  await db
+    .updateTable('shares')
+    .set({ expires_at: expiresAt })
+    .where('id', '=', shareId)
+    .execute();
+
+  return {
+    id: share.id,
+    token: share.token,
+    expires_at: expiresAt,
+    requires_password: share.requires_password === 1,
+    created_at: share.created_at
+  };
+};
+
+export const deleteShare = async (db: Kysely<Database>, tenantId: string, shareId: number) => {
+  const share = await db
+    .selectFrom('shares')
+    .select(['id'])
+    .where('tenant_id', '=', tenantId)
+    .where('id', '=', shareId)
+    .executeTakeFirst();
+
+  if (!share) {
+    throw createNotFoundError('分享不存在');
+  }
+
+  await db.transaction().execute(async (trx) => {
+    await trx.deleteFrom('share_sessions').where('share_id', '=', shareId).execute();
+    await trx.deleteFrom('shares').where('id', '=', shareId).execute();
+  });
 };

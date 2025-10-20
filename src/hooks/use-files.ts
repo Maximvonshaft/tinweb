@@ -56,14 +56,14 @@ export function useCreateFolderMutation() {
   });
 }
 
-export function useRenameMutation(id: string | number) {
+export function useRenameMutation() {
   const client = useApiClient();
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (payload: { name: string }) =>
-      client<FileItem>(`files/${id}`, {
+    mutationFn: (payload: { id: string | number; name: string }) =>
+      client<FileItem>(`files/${payload.id}`, {
         method: 'PATCH',
-        body: JSON.stringify(payload),
+        body: JSON.stringify({ name: payload.name }),
       }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['files'] });
