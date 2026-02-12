@@ -4,11 +4,11 @@ import type { TaskStatus } from '@/types/api';
 
 export function useTaskStatusQuery(taskId: string, enabled = true) {
   const client = useApiClient();
-  return useQuery({
-    queryKey: ['task', taskId],
+  return useQuery<TaskStatus, Error, TaskStatus, readonly ['task', string]>({
+    queryKey: ['task', taskId] as const,
     enabled,
     queryFn: () => client<TaskStatus>(`tasks/${taskId}`),
-    refetchInterval: (data) => {
+    refetchInterval: (data: TaskStatus | undefined) => {
       if (!data) return 2000;
       if (data.status === 'succeed' || data.status === 'failed') return false;
       return 2000;
